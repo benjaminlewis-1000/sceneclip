@@ -33,14 +33,40 @@ services:
     networks:
       - traefik_proxy
 
+  # Two dedicated workers, one per queue (see CELERY_TASK_ROUTES in
+  # config/settings.py), so a big scene-detection backlog can't starve
+  # scene encoding, or vice versa -- each queue always has its own worker
+  # slots regardless of how backed up the other one is.
   worker:
     build:
       context: ./backend
     container_name: sceneclip_worker
-    # -B: embedded beat scheduler for the periodic orphaned-work sweep
-    # (videos/tasks.py:sweep_orphaned_work_task) -- fine to embed in the
-    # same process since there's only ever one worker container here.
-    command: celery -A config worker -l INFO -c 2 -B
+    # Also consumes the default "celery" queue (metadata backfill, the
+    # orphaned-work sweep task) and is the only one of the two running -B
+    # (embedded beat for the periodic sweep) -- running it on both would
+    # fire the sweep twice on every schedule tick.
+    command: celery -A config worker -l INFO -c 2 -Q detection,celery -B --hostname=detect@%h
+    env_file: .env
+    environment:
+      - TZ=America/New_York
+    volumes:
+      - ./backend:/code
+      - ${VIDEO_ROOT}:/videos:ro
+      - ${OUTPUT_ROOT}:/output
+      - ${APPDATA_ROOT}/media:/media
+      - ${APPDATA_ROOT}/previews:/previews
+      - ${APPDATA_ROOT}/logs:/var/log/sceneclip
+    depends_on:
+      - db
+      - redis
+    networks:
+      - traefik_proxy
+
+  worker_encode:
+    build:
+      context: ./backend
+    container_name: sceneclip_worker_encode
+    command: celery -A config worker -l INFO -c 2 -Q encoding --hostname=encode@%h
     env_file: .env
     environment:
       - TZ=America/New_York

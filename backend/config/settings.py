@@ -160,6 +160,16 @@ CELERY_BROKER_TRANSPORT_OPTIONS = {
     "socket_timeout": 30,
     "socket_connect_timeout": 30,
 }
+# Detection and encoding get their own dedicated worker (see
+# docker-compose.yml: `worker` consumes "detection"+"celery", `worker_encode`
+# consumes "encoding") so a big detection backlog can't starve scene
+# encoding, or vice versa -- everything else not listed here (metadata
+# backfill, the orphaned-work sweep) rides the default "celery" queue.
+CELERY_TASK_ROUTES = {
+    "videos.tasks.run_detection_task": {"queue": "detection"},
+    "videos.tasks.export_scene_task": {"queue": "encoding"},
+    "videos.tasks.export_video_task": {"queue": "encoding"},
+}
 
 # ---------------------------------------------------------------------------
 # Auth: Authelia as an OIDC provider via django-allauth, same pattern as

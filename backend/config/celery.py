@@ -25,13 +25,20 @@ app.conf.beat_schedule = {
 
 
 @worker_ready.connect
-def _sweep_on_startup(**kwargs):
-    # Hit for real: restarting the worker container to deploy a code change
+def _sweep_on_startup(sender=None, **kwargs):
+    # Hit for real: restarting a worker container to deploy a code change
     # silently orphaned an in-progress DetectionRun -- it stayed "running"
-    # forever with no worker actually processing it. In this deployment
-    # there's only ever one worker container, so anything still claiming
-    # "running"/"mid-encode" the instant a fresh worker process comes up is
-    # unconditionally orphaned, not just slow.
+    # forever with no worker actually processing it. Since there's now two
+    # worker containers (see docker-compose.yml: `worker` for detection,
+    # `worker_encode` for encoding), this signal fires once per container
+    # on every restart -- only let the "detect@" one (hostname set via
+    # --hostname in docker-compose.yml) actually run the sweep, or both
+    # containers coming up together would race to reset/re-queue the same
+    # orphaned rows at once.
+    hostname = getattr(sender, "hostname", "") or ""
+    if not hostname.startswith("detect@"):
+        return
+
     from videos.tasks import sweep_orphaned_work
 
     swept = sweep_orphaned_work(only_unconditional=True)
