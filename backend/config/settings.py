@@ -169,6 +169,14 @@ CELERY_TASK_ROUTES = {
     "videos.tasks.run_detection_task": {"queue": "detection"},
     "videos.tasks.export_scene_task": {"queue": "encoding"},
     "videos.tasks.export_video_task": {"queue": "encoding"},
+    # Thumbnail/duration backfill for newly-added videos -- cheap and fast,
+    # but was sharing the detection worker's 2 slots with run_detection_task
+    # (both on the default "celery" queue there), so a big detection
+    # backlog could leave a fresh video showing a placeholder thumbnail for
+    # a long time even though generating it takes a couple seconds. The
+    # encoding worker is the less contended of the two in practice (fewer,
+    # shorter-lived jobs than a multi-hour detection backlog).
+    "videos.tasks.generate_video_metadata_task": {"queue": "encoding"},
 }
 
 # ---------------------------------------------------------------------------
