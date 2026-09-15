@@ -88,14 +88,23 @@ class SceneBoundarySerializer(serializers.ModelSerializer):
 
 
 class SceneSerializer(serializers.ModelSerializer):
+    video_path = serializers.CharField(source="video.path", read_only=True)
+
     class Meta:
         model = Scene
         fields = [
-            "id", "video", "start_boundary", "end_boundary", "start_seconds",
+            "id", "video", "video_path", "start_boundary", "end_boundary", "start_seconds",
             "end_seconds", "description", "scene_date", "exported",
-            "exported_path", "created_at", "updated_at",
+            "exported_path", "export_progress_percent", "verified",
+            "created_at", "updated_at",
         ]
-        read_only_fields = ["exported", "exported_path", "created_at", "updated_at"]
+        # verified only changes through the dedicated `verify` action (which
+        # also enforces the date requirement); exported*/progress are
+        # task-owned.
+        read_only_fields = [
+            "exported", "exported_path", "export_progress_percent", "verified",
+            "created_at", "updated_at",
+        ]
 
 
 class NotificationSerializer(serializers.ModelSerializer):

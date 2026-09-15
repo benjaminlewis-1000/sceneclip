@@ -8,12 +8,25 @@ import subprocess
 from celery import shared_task
 from django.utils import timezone
 
-from .models import DetectionRun, Notification, SceneBoundary, Video
+from .models import DetectionRun, Notification, Scene, SceneBoundary, Video
 from .services.detection import run_detection
 from .services.matching import carry_forward_reviews
 from .services.probe import probe_duration_seconds
-from .services.scenes import rebuild_scenes
+from .services.scenes import rebuild_scenes, scenes_ready_to_encode
 from .services.thumbnail import ensure_thumbnail
+
+
+def trigger_auto_encode(video) -> None:
+    """Queues an encode task for every scene that just became eligible
+    (closed, dated, not already exported/encoding) -- called after any
+    rebuild_scenes(). Sets export_progress_percent=0 here, synchronously,
+    before .delay() -- same reasoning as Video.status flipping at queue
+    time in the detect view: without it, a scene queued behind others in
+    a busy worker would show no sign anything had happened."""
+    for scene in scenes_ready_to_encode(video):
+        scene.export_progress_percent = 0
+        scene.save(update_fields=["export_progress_percent"])
+        export_scene_task.delay(scene.id)
 
 
 @shared_task
@@ -72,6 +85,10 @@ def run_detection_task(self, run_id: int):
         )
         carry_forward_reviews(video, boundaries)
         rebuild_scenes(video)
+        # carry_forward_reviews can auto-approve boundaries that match a
+        # prior run's verdict, which can close a scene immediately on a
+        # re-run without any explicit review action happening here.
+        trigger_auto_encode(video)
 
         run.status = DetectionRun.Status.DONE
         run.finished_at = timezone.now()
@@ -104,6 +121,38 @@ def run_detection_task(self, run_id: int):
             video=video,
             kind=Notification.Kind.DETECTION_FAILED,
             message=f"Scene detection failed for {video.path}: {exc}",
+        )
+        raise
+
+
+@shared_task(bind=True)
+def export_scene_task(self, scene_id: int):
+    """Encodes a single scene -- the primary encode path now, triggered
+    automatically as soon as a scene closes (trigger_auto_encode) or
+    manually for the trailing open-ended scene via the API."""
+    from .services.export import export_one_scene
+
+    scene = Scene.objects.select_related("video").get(id=scene_id)
+    video = scene.video
+    scene.export_progress_percent = 0
+    scene.save(update_fields=["export_progress_percent"])
+
+    def on_progress(fraction: float) -> None:
+        Scene.objects.filter(id=scene.id).update(export_progress_percent=min(99, int(fraction * 100)))
+
+    try:
+        export_one_scene(scene, on_progress=on_progress)
+        Notification.objects.create(
+            video=video,
+            kind=Notification.Kind.EXPORT_DONE,
+            message=f"Encoded scene {scene.start_seconds:.0f}s-{scene.end_seconds:.0f}s for {video.path}.",
+        )
+    except Exception as exc:
+        Scene.objects.filter(id=scene.id).update(export_progress_percent=None)
+        Notification.objects.create(
+            video=video,
+            kind=Notification.Kind.EXPORT_FAILED,
+            message=f"Encoding failed for a scene in {video.path}: {exc}",
         )
         raise
 

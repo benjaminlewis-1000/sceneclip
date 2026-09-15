@@ -7,7 +7,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
-from videos.models import DetectionRun, Notification, SceneBoundary, Video
+from videos.models import DetectionRun, Notification, Scene, SceneBoundary, Video
 
 pytestmark = pytest.mark.django_db
 
@@ -51,7 +51,13 @@ def test_review_boundary_approve_creates_derived_scenes():
 
     video = Video.objects.create(path="/videos/tape3.mp4", duration_seconds=60.0)
     run = DetectionRun.objects.create(video=video, params={})
-    boundary = SceneBoundary.objects.create(video=video, run=run, timestamp_seconds=30.0)
+    boundary = SceneBoundary.objects.create(
+        video=video,
+        run=run,
+        timestamp_seconds=30.0,
+        before_date="1994-01-01",
+        after_date="1994-01-02",
+    )
 
     response = client.post(f"/api/boundaries/{boundary.id}/review/", {"verdict": "approved"}, format="json")
     assert response.status_code == 200
@@ -198,3 +204,101 @@ def test_boundary_patch_cannot_set_review_status_directly():
     )
     boundary.refresh_from_db()
     assert boundary.review_status == SceneBoundary.ReviewStatus.PENDING
+
+
+def test_review_approve_requires_both_before_and_after_date():
+    user = get_user_model().objects.create_user(username="benjamin11", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape11.mp4", duration_seconds=60.0)
+    run = DetectionRun.objects.create(video=video, params={})
+    boundary = SceneBoundary.objects.create(
+        video=video, run=run, timestamp_seconds=30.0, before_date="1994-01-01"
+    )  # after_date still missing
+
+    response = client.post(f"/api/boundaries/{boundary.id}/review/", {"verdict": "approved"}, format="json")
+    assert response.status_code == 400
+    boundary.refresh_from_db()
+    assert boundary.review_status == SceneBoundary.ReviewStatus.PENDING
+
+
+def test_review_reject_only_requires_before_date():
+    # Reject means no real cut -- before/after describe the same continuous
+    # scene -- so after_date isn't required to proceed.
+    user = get_user_model().objects.create_user(username="benjamin12", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape12.mp4", duration_seconds=60.0)
+    run = DetectionRun.objects.create(video=video, params={})
+    boundary = SceneBoundary.objects.create(
+        video=video, run=run, timestamp_seconds=30.0, before_date="1994-01-01"
+    )
+
+    response = client.post(f"/api/boundaries/{boundary.id}/review/", {"verdict": "rejected"}, format="json")
+    assert response.status_code == 200
+
+
+def test_scene_encode_requires_date():
+    user = get_user_model().objects.create_user(username="benjamin13", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape13.mp4", duration_seconds=60.0)
+    scene = Scene.objects.create(video=video, start_seconds=0.0, end_seconds=30.0)
+
+    response = client.post(f"/api/scenes/{scene.id}/encode/")
+    assert response.status_code == 400
+
+
+def test_scene_clip_404s_when_not_encoded():
+    user = get_user_model().objects.create_user(username="benjamin14", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape14.mp4", duration_seconds=60.0)
+    scene = Scene.objects.create(video=video, start_seconds=0.0, end_seconds=30.0)
+
+    response = client.get(f"/api/scenes/{scene.id}/clip/")
+    assert response.status_code == 404
+
+
+def test_scene_verify_requires_encoded_and_dated():
+    user = get_user_model().objects.create_user(username="benjamin15", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape15.mp4", duration_seconds=60.0)
+    scene = Scene.objects.create(video=video, start_seconds=0.0, end_seconds=30.0)
+
+    response = client.post(f"/api/scenes/{scene.id}/verify/")
+    assert response.status_code == 400  # not exported yet
+
+    scene.exported = True
+    scene.save(update_fields=["exported"])
+    response = client.post(f"/api/scenes/{scene.id}/verify/")
+    assert response.status_code == 400  # exported but still no date
+
+    scene.scene_date = "1994-01-01"
+    scene.save(update_fields=["scene_date"])
+    response = client.post(f"/api/scenes/{scene.id}/verify/")
+    assert response.status_code == 200
+    scene.refresh_from_db()
+    assert scene.verified is True
+
+
+def test_scene_verify_queue_returns_next_unverified_exported_scene():
+    user = get_user_model().objects.create_user(username="benjamin16", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape16.mp4", duration_seconds=60.0)
+    Scene.objects.create(video=video, start_seconds=0.0, end_seconds=30.0)  # not exported -- excluded
+    ready = Scene.objects.create(
+        video=video, start_seconds=30.0, end_seconds=60.0, exported=True, scene_date="1994-01-01"
+    )
+
+    response = client.get("/api/scenes/verify_queue/")
+    assert response.status_code == 200
+    assert response.data["id"] == ready.id

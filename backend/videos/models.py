@@ -138,6 +138,14 @@ class Scene(models.Model):
     scene_date = models.DateField(null=True, blank=True)
     exported = models.BooleanField(default=False)
     exported_path = models.CharField(max_length=1024, blank=True, default="")
+    # Set while a per-scene encode is in flight; None otherwise. Distinct
+    # from `exported` so a scene mid-encode isn't re-triggered a second
+    # time by the next boundary review (see services/scenes.py's auto-
+    # encode trigger).
+    export_progress_percent = models.IntegerField(null=True, blank=True)
+    # A human "I watched the final encoded clip and it's right" checkpoint,
+    # separate from boundary review -- set via the Verify queue.
+    verified = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

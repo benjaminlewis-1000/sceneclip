@@ -1,11 +1,12 @@
 # Covers generate_video_metadata_task: the background backfill that lets
 # sync/create return instantly instead of generating thumbnails inline.
 import subprocess
+from unittest import mock
 
 import pytest
 
-from videos.models import DetectionRun, SceneBoundary, Video
-from videos.tasks import generate_video_metadata_task, run_detection_task
+from videos.models import DetectionRun, Scene, SceneBoundary, Video
+from videos.tasks import generate_video_metadata_task, run_detection_task, trigger_auto_encode
 
 pytestmark = pytest.mark.django_db
 
@@ -66,3 +67,34 @@ def test_run_detection_task_failure_reverts_to_reviewing_when_boundaries_exist()
 
     video.refresh_from_db()
     assert video.status == Video.Status.REVIEWING
+
+
+def test_trigger_auto_encode_queues_closed_dated_scenes_only():
+    video = Video.objects.create(path="/videos/tape.mp4", duration_seconds=90.0)
+    run = DetectionRun.objects.create(video=video, params={})
+    b1 = SceneBoundary.objects.create(video=video, run=run, timestamp_seconds=30.0)
+    b2 = SceneBoundary.objects.create(video=video, run=run, timestamp_seconds=60.0)
+
+    closed_dated = Scene.objects.create(
+        video=video, start_boundary=b1, end_boundary=b2, start_seconds=30.0, end_seconds=60.0,
+        scene_date="1994-01-01",
+    )
+    trailing_open = Scene.objects.create(
+        video=video, start_boundary=b2, end_boundary=None, start_seconds=60.0, end_seconds=90.0,
+        scene_date="1994-01-01",
+    )  # no end_boundary -- must not auto-encode even though it has a date
+    already_exported = Scene.objects.create(
+        video=video, start_boundary=None, end_boundary=b1, start_seconds=0.0, end_seconds=30.0,
+        scene_date="1994-01-01", exported=True, exported_path="/output/x.mp4",
+    )
+
+    with mock.patch("videos.tasks.export_scene_task.delay") as mock_delay:
+        trigger_auto_encode(video)
+
+    mock_delay.assert_called_once_with(closed_dated.id)
+    closed_dated.refresh_from_db()
+    assert closed_dated.export_progress_percent == 0
+    trailing_open.refresh_from_db()
+    assert trailing_open.export_progress_percent is None
+    already_exported.refresh_from_db()
+    assert already_exported.export_progress_percent is None

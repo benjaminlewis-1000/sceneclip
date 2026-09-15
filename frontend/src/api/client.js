@@ -96,6 +96,11 @@ export const api = {
   listScenes: (videoId) => request(`/api/scenes/?video=${videoId}`),
   updateScene: (id, data) =>
     request(`/api/scenes/${id}/`, { method: "PATCH", body: JSON.stringify(data) }),
+  encodeScene: (id) => request(`/api/scenes/${id}/encode/`, { method: "POST" }),
+  sceneClipUrl: (id) => `/api/scenes/${id}/clip/`,
+  verifyScene: (id) => request(`/api/scenes/${id}/verify/`, { method: "POST" }),
+  nextVerifyQueueScene: (videoId) =>
+    request(`/api/scenes/verify_queue/${videoId ? `?video=${videoId}` : ""}`),
 
   listNotifications: (since) =>
     request(`/api/notifications/${since ? `?since=${encodeURIComponent(since)}` : ""}`),

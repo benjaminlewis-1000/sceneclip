@@ -1,12 +1,16 @@
 // Per-video page: full-video playback, per-video detection-param overrides
-// (falls back to the library-wide defaults), the derived scene list with
-// inline enrichment editing, and the export trigger.
+// (falls back to the library-wide defaults), and the derived scene list
+// with inline enrichment editing. Encoding is per-scene: most scenes
+// encode automatically as soon as they close (see tasks.trigger_auto_encode
+// on the backend); the trailing, still-open scene needs a manual "Encode"
+// click here since it keeps growing as more boundaries get approved.
 import React, { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { api } from "../api/client.js";
 import BackButton from "../components/BackButton.jsx";
 
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+const POLL_MS = 3000;
 
 export default function VideoDetail() {
   const { videoId } = useParams();
@@ -14,7 +18,9 @@ export default function VideoDetail() {
   const [scenes, setScenes] = useState([]);
   const [params, setParams] = useState({ detector: "adaptive", threshold: 3.0, min_scene_len_seconds: 2.0 });
   const [speed, setSpeed] = useState(1);
-  const [playRange, setPlayRange] = useState(null); // {end} while "Watch this scene" is active
+  // null = playing the raw source (top player); otherwise the scene whose
+  // encoded clip is currently loaded.
+  const [watchingSceneId, setWatchingSceneId] = useState(null);
   const videoRef = useRef(null);
 
   const refresh = async () => {
@@ -30,39 +36,29 @@ export default function VideoDetail() {
   }, [videoId]);
 
   useEffect(() => {
-    if (videoRef.current) videoRef.current.playbackRate = speed;
-  }, [speed, videoId]);
+    // Scene encoding happens server-side (auto-triggered or manual) --
+    // poll while anything's mid-encode so the table's progress/Watch
+    // gating updates without a manual refresh.
+    const hasEncodingInFlight = scenes.some((s) => s.export_progress_percent != null);
+    if (!hasEncodingInFlight) return undefined;
+    const interval = setInterval(refresh, POLL_MS);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenes]);
 
-  // Auto-pauses once playback reaches the end of the scene that "Watch
-  // this scene" started -- there's no native way to bound <video> playback
-  // to a range once it's already loaded (media-fragment #t=start,end only
-  // takes effect on initial load), so this is a manual stand-in.
   useEffect(() => {
-    const v = videoRef.current;
-    if (!v || !playRange) return undefined;
-    const onTimeUpdate = () => {
-      if (v.currentTime >= playRange.end) v.pause();
-    };
-    v.addEventListener("timeupdate", onTimeUpdate);
-    return () => v.removeEventListener("timeupdate", onTimeUpdate);
-  }, [playRange]);
+    if (videoRef.current) videoRef.current.playbackRate = speed;
+  }, [speed, videoId, watchingSceneId]);
 
   const watchScene = (scene) => {
-    const v = videoRef.current;
-    if (!v) return;
-    setPlayRange({ end: scene.end_seconds });
-    v.currentTime = scene.start_seconds;
-    v.play();
-    v.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (!scene.exported) return;
+    setWatchingSceneId(scene.id);
   };
+
+  const watchFullSource = () => setWatchingSceneId(null);
 
   const runDetection = async (saveAsOverride) => {
     await api.detectVideo(videoId, params, saveAsOverride);
-    refresh();
-  };
-
-  const exportVideo = async () => {
-    await api.exportVideo(videoId);
     refresh();
   };
 
@@ -71,13 +67,26 @@ export default function VideoDetail() {
     refresh();
   };
 
+  const encodeScene = async (scene) => {
+    const pending = await api.listBoundaries({ video: videoId, status: "pending" });
+    if (pending.length > 0) {
+      const n = pending.length;
+      const proceed = window.confirm(
+        `This video still has ${n} unreviewed scene boundar${n === 1 ? "y" : "ies"}. ` +
+          "Encoding the final scene now may lock it in before it's actually complete " +
+          "(a later approval could split it further). Encode anyway?"
+      );
+      if (!proceed) return;
+    }
+    await api.encodeScene(scene.id);
+    refresh();
+  };
+
   if (!video) return <p>Loading...</p>;
 
-  // Even with zero approved boundaries, rebuild_scenes() still produces one
-  // "whole video" Scene row once duration is known -- so gate on
-  // has_approved_boundaries (a real human verdict), not just "some
-  // not-yet-exported scene exists."
-  const exportDisabled = !video.has_approved_boundaries || !scenes.some((s) => !s.exported);
+  const playerSrc = watchingSceneId
+    ? api.sceneClipUrl(watchingSceneId)
+    : `/api/videos/${videoId}/stream/`;
 
   return (
     <div>
@@ -87,10 +96,18 @@ export default function VideoDetail() {
 
       <video
         ref={videoRef}
-        src={`/api/videos/${videoId}/stream/`}
+        key={playerSrc}
+        src={playerSrc}
         controls
+        autoPlay={watchingSceneId != null}
         style={{ maxWidth: "720px", width: "100%" }}
       />
+      {watchingSceneId != null && (
+        <p className="boundary-log-hint">
+          Playing the encoded clip for this scene.{" "}
+          <button onClick={watchFullSource}>Back to full source</button>
+        </p>
+      )}
       <div className="speed-controls">
         {SPEEDS.map((s) => (
           <button key={s} className={s === speed ? "active" : ""} onClick={() => setSpeed(s)}>
@@ -145,51 +162,66 @@ export default function VideoDetail() {
             <th>End</th>
             <th>Description</th>
             <th>Date</th>
-            <th>Exported</th>
+            <th>Encoded</th>
+            <th>Verified</th>
             <th></th>
           </tr>
         </thead>
         <tbody>
-          {scenes.map((s) => (
-            <tr key={s.id}>
-              <td>{formatTime(s.start_seconds)}</td>
-              <td>{formatTime(s.end_seconds)}</td>
-              <td>
-                <input
-                  defaultValue={s.description}
-                  onBlur={(e) => updateScene(s.id, "description", e.target.value)}
-                />
-              </td>
-              <td>
-                <input
-                  type="date"
-                  defaultValue={s.scene_date || ""}
-                  onBlur={(e) => updateScene(s.id, "scene_date", e.target.value || null)}
-                />
-              </td>
-              <td>{s.exported ? "yes" : "no"}</td>
-              <td>
-                <button onClick={() => watchScene(s)}>Watch</button>
-              </td>
-            </tr>
-          ))}
+          {scenes.map((s) => {
+            const isOpenScene = !s.end_boundary;
+            const encoding = s.export_progress_percent != null;
+            return (
+              <tr key={s.id}>
+                <td>{formatTime(s.start_seconds)}</td>
+                <td>{isOpenScene ? "(open)" : formatTime(s.end_seconds)}</td>
+                <td>
+                  <input
+                    defaultValue={s.description}
+                    onBlur={(e) => updateScene(s.id, "description", e.target.value)}
+                  />
+                </td>
+                <td>
+                  <input
+                    type="date"
+                    defaultValue={s.scene_date || ""}
+                    onBlur={(e) => updateScene(s.id, "scene_date", e.target.value || null)}
+                  />
+                </td>
+                <td>
+                  {encoding ? `${s.export_progress_percent}%...` : s.exported ? "yes" : "no"}
+                </td>
+                <td>{s.verified ? "✓" : ""}</td>
+                <td className="scene-table-actions">
+                  <button onClick={() => watchScene(s)} disabled={!s.exported}>
+                    Watch
+                  </button>
+                  {isOpenScene && !s.exported && (
+                    <button
+                      onClick={() => encodeScene(s)}
+                      disabled={encoding || !s.scene_date}
+                      title={!s.scene_date ? "A date is required before encoding" : undefined}
+                    >
+                      {encoding ? "Encoding..." : "Encode this scene"}
+                    </button>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
           {scenes.length === 0 && (
             <tr>
-              <td colSpan="6">
+              <td colSpan="7">
                 No scenes yet -- once boundaries are reviewed, approved segments show up here.
               </td>
             </tr>
           )}
         </tbody>
       </table>
-
-      <button
-        onClick={exportVideo}
-        disabled={exportDisabled}
-        title={exportDisabled ? "No approved boundaries yet -- review at least one first" : undefined}
-      >
-        Export approved scenes
-      </button>
+      <p className="boundary-log-hint">
+        Closed scenes encode automatically once dated during review. Unverified encoded scenes
+        show up in the <Link to="/verify">Verify queue</Link>.
+      </p>
     </div>
   );
 }

@@ -22,7 +22,13 @@ from .services.library import sync_library
 from .services.range_response import serve_file_with_range
 from .services.scenes import rebuild_scenes
 from .services.thumbnail import ensure_thumbnail
-from .tasks import export_video_task, generate_video_metadata_task, run_detection_task
+from .tasks import (
+    export_scene_task,
+    export_video_task,
+    generate_video_metadata_task,
+    run_detection_task,
+    trigger_auto_encode,
+)
 
 
 def _global_default_params() -> dict:
@@ -223,11 +229,28 @@ class SceneBoundaryViewSet(
         if verdict not in valid:
             return Response({"error": "verdict must be 'approved' or 'rejected'"}, status=400)
 
+        # A date is required before advancing at all -- it ends up baked
+        # into the encoded clip's metadata, so letting a scene go undated
+        # here just means re-encoding later once someone notices. Approve
+        # closes two genuinely different scenes (before and after), so both
+        # need a date; reject means there was no real cut -- before/after
+        # describe the same continuous scene -- so only before_date matters
+        # (frontend already falls back to it when after is left blank).
+        if verdict == SceneBoundary.ReviewStatus.APPROVED:
+            missing = not boundary.before_date or not boundary.after_date
+        else:
+            missing = not boundary.before_date
+        if missing:
+            return Response(
+                {"error": "A date is required before this boundary can be reviewed."}, status=400
+            )
+
         boundary.review_status = verdict
         boundary.reviewed_at = timezone.now()
         boundary.matched_from = None
         boundary.save(update_fields=["review_status", "reviewed_at", "matched_from"])
         rebuild_scenes(boundary.video)
+        trigger_auto_encode(boundary.video)
         return Response(SceneBoundarySerializer(boundary).data)
 
     @action(detail=True, methods=["post"])
@@ -261,7 +284,10 @@ class SceneViewSet(viewsets.ModelViewSet):
     """Scenes are auto-derived by rebuild_scenes() from approved boundaries,
     but this is a full ModelViewSet because the enrichment fields
     (description, scene_date) are edited directly by the user through
-    PATCH, not through a detection run."""
+    PATCH, not through a detection run. Most scenes encode automatically as
+    soon as they close (see tasks.trigger_auto_encode); `encode` is the
+    manual trigger for the one that doesn't -- the trailing, still-open
+    scene with no end_boundary yet."""
 
     queryset = Scene.objects.select_related("video")
     serializer_class = SceneSerializer
@@ -272,6 +298,50 @@ class SceneViewSet(viewsets.ModelViewSet):
         if video_id:
             qs = qs.filter(video_id=video_id)
         return qs
+
+    @action(detail=True, methods=["post"])
+    def encode(self, request, pk=None):
+        scene = self.get_object()
+        if not scene.scene_date:
+            return Response({"error": "A date is required before this scene can be encoded."}, status=400)
+        if scene.exported:
+            return Response({"error": "Already encoded."}, status=400)
+        if scene.export_progress_percent is not None:
+            return Response({"error": "Already encoding."}, status=400)
+
+        scene.export_progress_percent = 0
+        scene.save(update_fields=["export_progress_percent"])
+        export_scene_task.delay(scene.id)
+        return Response(SceneSerializer(scene).data, status=status.HTTP_202_ACCEPTED)
+
+    @action(detail=True, methods=["get"])
+    def clip(self, request, pk=None):
+        # The actual encoded output, not the raw (often browser-incompatible
+        # -- see CLAUDE.md) source -- this is what "Watch" and the Verify
+        # queue play.
+        scene = self.get_object()
+        if not scene.exported or not scene.exported_path:
+            return Response({"error": "Not encoded yet."}, status=404)
+        return serve_file_with_range(request, scene.exported_path)
+
+    @action(detail=False, methods=["get"])
+    def verify_queue(self, request):
+        """Next encoded-but-unverified scene, for the auto-advancing Verify
+        queue view. Optional ?video= scopes to one video."""
+        qs = self.get_queryset().filter(exported=True, verified=False).order_by("video_id", "start_seconds")
+        scene = qs.first()
+        return Response(SceneSerializer(scene).data if scene else None)
+
+    @action(detail=True, methods=["post"])
+    def verify(self, request, pk=None):
+        scene = self.get_object()
+        if not scene.exported:
+            return Response({"error": "Not encoded yet."}, status=400)
+        if not scene.scene_date:
+            return Response({"error": "A date is required before this scene can be verified."}, status=400)
+        scene.verified = True
+        scene.save(update_fields=["verified"])
+        return Response(SceneSerializer(scene).data)
 
 
 class NotificationViewSet(mixins.DestroyModelMixin, viewsets.ReadOnlyModelViewSet):

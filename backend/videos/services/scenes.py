@@ -86,3 +86,20 @@ def rebuild_scenes(video) -> None:
     # happened against the old cut points and re-deriving would silently
     # orphan the file on disk.
     video.scenes.exclude(id__in=keep_ids).filter(exported=False).delete()
+
+
+def scenes_ready_to_encode(video):
+    """Scenes that should auto-encode: closed (has an end_boundary -- the
+    trailing open-ended scene is deliberately excluded, since re-encoding
+    it every time a new boundary gets approved would mean repeatedly
+    re-cutting a growing, potentially very large tail; it gets a manual
+    "Encode this scene" trigger instead), not already exported or
+    mid-encode, and dated (required before encoding at all -- see
+    ReviewQueue's date validation, which is what's supposed to guarantee
+    this is already true by the time a scene closes)."""
+    return video.scenes.filter(
+        end_boundary__isnull=False,
+        exported=False,
+        export_progress_percent__isnull=True,
+        scene_date__isnull=False,
+    )

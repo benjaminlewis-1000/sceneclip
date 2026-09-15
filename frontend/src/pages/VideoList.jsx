@@ -2,7 +2,10 @@
 // on load, plus a directory browser for adding a file from elsewhere under
 // that same mount (the container can't see outside it). Each video is a
 // card: thumbnail + path on one line, its actions on the next -- reprocess,
-// jump to per-video params, review just this video, toggle "done", export.
+// jump to per-video params, review this video, toggle "done". Encoding
+// clips is scene-by-scene now (automatic once a scene closes, or manual
+// for the trailing open one), so it lives on the video review page, not
+// here as a whole-video action.
 import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client.js";
@@ -49,10 +52,7 @@ export default function VideoList() {
     // metadata backfill (duration_seconds null), so a thumbnail placeholder
     // flips over to the real image without a manual refresh.
     const hasPendingWork = videos.some(
-      (v) =>
-        IN_PROGRESS_STATUSES.has(v.status) ||
-        v.export_progress_percent != null ||
-        v.duration_seconds == null
+      (v) => IN_PROGRESS_STATUSES.has(v.status) || v.duration_seconds == null
     );
     if (!hasPendingWork) return undefined;
     const interval = setInterval(refresh, POLL_MS);
@@ -68,11 +68,6 @@ export default function VideoList() {
 
   const reprocess = async (video) => {
     await api.detectVideo(video.id, video.detection_params_override || undefined);
-    refresh();
-  };
-
-  const exportClips = async (video) => {
-    await api.exportVideo(video.id);
     refresh();
   };
 
@@ -142,7 +137,6 @@ export default function VideoList() {
             key={v.id}
             video={v}
             onReprocess={() => reprocess(v)}
-            onExport={() => exportClips(v)}
             onToggleDone={() => toggleDone(v)}
           />
         ))}
@@ -155,9 +149,8 @@ export default function VideoList() {
   );
 }
 
-function VideoCard({ video, onReprocess, onExport, onToggleDone }) {
+function VideoCard({ video, onReprocess, onToggleDone }) {
   const inProgress = IN_PROGRESS_STATUSES.has(video.status);
-  const exporting = video.export_progress_percent != null;
   // duration_seconds is set by the same background task that generates the
   // thumbnail (see tasks.py:generate_video_metadata_task) -- using it as
   // the "ready" signal avoids requesting a thumbnail that would otherwise
@@ -197,7 +190,6 @@ function VideoCard({ video, onReprocess, onExport, onToggleDone }) {
       ) : (
         inProgress && <ProgressBar label="Detecting" percent={video.detection_progress_percent} />
       )}
-      {exporting && <ProgressBar label="Exporting" percent={video.export_progress_percent} />}
 
       <div className="video-card-actions">
         <button onClick={onReprocess} disabled={inProgress}>
@@ -218,13 +210,6 @@ function VideoCard({ video, onReprocess, onExport, onToggleDone }) {
             Review this video
           </button>
         )}
-        <button
-          onClick={onExport}
-          disabled={exporting || !video.has_approved_boundaries}
-          title={!video.has_approved_boundaries ? "No approved boundaries yet -- review at least one first" : undefined}
-        >
-          Export clips
-        </button>
         <button onClick={onToggleDone}>
           {video.marked_done ? "Mark not done" : "Mark done"}
         </button>

@@ -6,6 +6,16 @@ body {
   color: #e6e6e6;
 }
 
+/* Browser default link blue is nearly unreadable on this dark background;
+   use the same accent blue already used for progress bars/badges. */
+a {
+  color: #6fa8ff;
+}
+
+a:visited {
+  color: #a08fd8;
+}
+
 .app-shell {
   display: flex;
   flex-direction: column;
@@ -123,6 +133,12 @@ button.active {
   background: #3a3f52;
 }
 
+.scene-table-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
 .boundary-log {
   margin-top: 1rem;
   padding: 0.75rem;
@@ -152,6 +168,13 @@ button.active {
   margin: 0;
   font-size: 0.8rem;
   color: #7a8098;
+}
+
+.validation-error {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+  color: #e57373;
+  font-weight: 600;
 }
 
 .review-actions, .speed-controls, .scrub-controls, .params-actions, .tile-actions {

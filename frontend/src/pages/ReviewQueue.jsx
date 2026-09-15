@@ -41,6 +41,7 @@ export default function ReviewQueue() {
     setBeforeDate(b?.before_date || "");
     setAfterDescription(b?.after_description || "");
     setAfterDate(b?.after_date || "");
+    setValidationError("");
   };
 
   // `carry` is the previous boundary's after_description/after_date --
@@ -72,9 +73,28 @@ export default function ReviewQueue() {
     if (videoRef.current) videoRef.current.playbackRate = speed;
   }, [speed, boundary]);
 
+  const [validationError, setValidationError] = useState("");
+
   const decide = useCallback(
     async (verdict) => {
       if (!boundary) return;
+
+      // A date is required to advance at all -- it ends up baked into the
+      // encoded clip's metadata, so letting a scene go undated here just
+      // means re-encoding later. Approve closes two genuinely different
+      // scenes, so both need a date; reject means no real cut (before/after
+      // describe the same continuous scene), so only "before" matters.
+      const missingDate = verdict === "approved" ? !beforeDate || !afterDate : !beforeDate;
+      if (missingDate) {
+        setValidationError(
+          verdict === "approved"
+            ? "Enter both a Before and After date before approving."
+            : "Enter a Before date before rejecting."
+        );
+        return;
+      }
+      setValidationError("");
+
       // Flush whatever's currently typed (a field may not have been
       // blurred yet) before moving on.
       await api.updateBoundary(boundary.id, {
@@ -246,6 +266,7 @@ export default function ReviewQueue() {
         <p className="boundary-log-hint">
           "After" carries forward as "Before" on the next boundary automatically.
         </p>
+        {validationError && <p className="validation-error">{validationError}</p>}
       </div>
 
       <div className="review-actions">
