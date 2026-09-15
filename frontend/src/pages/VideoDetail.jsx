@@ -1,16 +1,20 @@
 // Per-video page: full-video playback, per-video detection-param overrides
 // (falls back to the library-wide defaults), the derived scene list with
 // inline enrichment editing, and the export trigger.
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api/client.js";
 import BackButton from "../components/BackButton.jsx";
+
+const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 
 export default function VideoDetail() {
   const { videoId } = useParams();
   const [video, setVideo] = useState(null);
   const [scenes, setScenes] = useState([]);
   const [params, setParams] = useState({ detector: "adaptive", threshold: 3.0, min_scene_len_seconds: 2.0 });
+  const [speed, setSpeed] = useState(1);
+  const videoRef = useRef(null);
 
   const refresh = async () => {
     const v = await api.getVideo(videoId);
@@ -23,6 +27,10 @@ export default function VideoDetail() {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [videoId]);
+
+  useEffect(() => {
+    if (videoRef.current) videoRef.current.playbackRate = speed;
+  }, [speed, videoId]);
 
   const runDetection = async (saveAsOverride) => {
     await api.detectVideo(videoId, params, saveAsOverride);
@@ -54,10 +62,18 @@ export default function VideoDetail() {
       <p>Status: {video.status}</p>
 
       <video
+        ref={videoRef}
         src={`/api/videos/${videoId}/stream/`}
         controls
         style={{ maxWidth: "720px", width: "100%" }}
       />
+      <div className="speed-controls">
+        {SPEEDS.map((s) => (
+          <button key={s} className={s === speed ? "active" : ""} onClick={() => setSpeed(s)}>
+            {s}x
+          </button>
+        ))}
+      </div>
 
       <h2>Detection parameters (this video)</h2>
       <div className="params-form">
