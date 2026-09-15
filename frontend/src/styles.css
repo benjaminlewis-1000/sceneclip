@@ -1,0 +1,144 @@
+/* Minimal utility styling -- functional layout, not a design pass. */
+body {
+  margin: 0;
+  font-family: system-ui, sans-serif;
+  background: #12141a;
+  color: #e6e6e6;
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-nav {
+  display: flex;
+  gap: 1.5rem;
+  align-items: center;
+  padding: 0.75rem 1.5rem;
+  background: #1c1f28;
+  border-bottom: 1px solid #2a2e3a;
+}
+
+.app-nav a {
+  color: #bcbcd0;
+  text-decoration: none;
+}
+
+.app-nav a.active {
+  color: #fff;
+  font-weight: 600;
+}
+
+.app-title {
+  font-weight: 700;
+  margin-right: 1rem;
+}
+
+.app-main {
+  padding: 1.5rem;
+  max-width: 960px;
+  margin: 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+  border-bottom: 1px solid #2a2e3a;
+}
+
+button {
+  cursor: pointer;
+  border: 1px solid #3a3f52;
+  background: #232734;
+  color: #e6e6e6;
+  border-radius: 4px;
+  padding: 0.4rem 0.8rem;
+}
+
+button.approve {
+  border-color: #3fa66c;
+}
+
+button.reject {
+  border-color: #c34141;
+}
+
+button.active {
+  background: #3a3f52;
+}
+
+.review-actions, .speed-controls, .scrub-controls, .params-actions, .tile-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 1rem;
+}
+
+.tile {
+  background: #1c1f28;
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.tile-header {
+  font-size: 0.85rem;
+  color: #9aa0b4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.notification-list {
+  list-style: none;
+  padding: 0;
+}
+
+.notification-list li {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #2a2e3a;
+}
+
+.notification-list li.unread {
+  color: #fff;
+}
+
+.notif-time {
+  color: #7a8098;
+  font-size: 0.8rem;
+  margin-left: auto;
+}
+
+.params-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.add-video-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.add-video-form input {
+  flex: 1;
+}
