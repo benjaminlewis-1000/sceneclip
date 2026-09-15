@@ -25,7 +25,11 @@ async function request(path, options = {}) {
     credentials: "same-origin",
     headers: {
       "Content-Type": "application/json",
-      "X-CSRFToken": getCookie("csrftoken") || "",
+      // Cookie name matches settings.py's CSRF_COOKIE_NAME -- kept unique
+      // (not Django's default "csrftoken") to avoid colliding with other
+      // apps on this domain; see the comment there for what that collision
+      // actually broke.
+      "X-CSRFToken": getCookie("sceneclip_csrftoken") || "",
       ...(options.headers || {}),
     },
     ...options,

@@ -199,6 +199,24 @@ LOGIN_REDIRECT_URL = f"https://{os.environ.get('APP_DOMAIN', 'localhost')}/"
 LOGOUT_REDIRECT_URL = f"https://{os.environ.get('APP_DOMAIN', 'localhost')}/"
 ACCOUNT_DEFAULT_HTTP_PROTOCOL = "https"
 
+# Unique cookie names, not Django's defaults ("csrftoken"/"sessionid").
+# Root-caused a real bug: django_picasa, a sibling app on this same parent
+# domain, sets CSRF_COOKIE_DOMAIN/SESSION_COOKIE_DOMAIN to the wildcard
+# '.exploretheworld.tech', making its cookies visible on every subdomain
+# including this one. With the same default cookie names, a browser logged
+# into both apps ends up with two different "csrftoken" cookies scoped to
+# this origin (picasa's wildcard one, this app's host-only one) -- the
+# browser sends both, and the JS reading document.cookie vs. Django parsing
+# the Cookie header can resolve the duplicate to different values, so every
+# POST/PATCH/DELETE CSRF-failed with a token that looked stable but was
+# actually just consistently wrong. Verified via direct log capture of the
+# cookie vs. header values on a real request. This app never sets a
+# wildcard cookie domain (no *_COOKIE_DOMAIN override above), so a unique
+# name is enough to make the collision structurally impossible regardless
+# of what other apps on the domain do.
+CSRF_COOKIE_NAME = "sceneclip_csrftoken"
+SESSION_COOKIE_NAME = "sceneclip_sessionid"
+
 # The nginx frontend container terminates the browser connection and proxies
 # to this service over plain HTTP inside the docker network, forwarding
 # X-Forwarded-Proto -- trust that header for Django's own scheme detection
