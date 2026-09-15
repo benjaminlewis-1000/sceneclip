@@ -90,7 +90,12 @@ a:visited {
 
 .app-main {
   padding: 1.5rem;
-  max-width: 960px;
+  /* Wide enough that the scene table (Start/End/Description/Date/
+     Encoded/Verified/Actions, 4-5 nowrap buttons in that last column)
+     fits without a horizontal scrollbar on a typical desktop window --
+     960px left the actions column running off the container even though
+     the browser window had free space on either side of it. */
+  max-width: 1400px;
   margin: 0 auto;
   width: 100%;
   box-sizing: border-box;
