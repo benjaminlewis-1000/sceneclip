@@ -181,6 +181,7 @@ export default function VideoDetail() {
       </div>
 
       <h2>Scenes</h2>
+      <div style={{ overflowX: "auto" }}>
       <table className="scene-table">
         <thead>
           <tr>
@@ -271,6 +272,7 @@ export default function VideoDetail() {
           )}
         </tbody>
       </table>
+      </div>
       <p className="boundary-log-hint">
         Closed scenes encode automatically once dated during review. Unverified encoded scenes
         show up in the <Link to="/verify">Verify queue</Link>.

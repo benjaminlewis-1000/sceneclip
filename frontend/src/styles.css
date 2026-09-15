@@ -136,7 +136,7 @@ button.active {
 .scene-table-actions {
   display: flex;
   gap: 0.4rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .boundary-log {
