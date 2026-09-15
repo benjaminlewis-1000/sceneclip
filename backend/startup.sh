@@ -31,4 +31,10 @@ PYEOF
 python manage.py migrate --noinput
 python manage.py collectstatic --noinput
 
-gunicorn -b 0.0.0.0:8000 --workers 2 --threads 4 --worker-class gthread --timeout 600 config.wsgi
+# --access-logfile/--error-logfile default to nowhere -- without these,
+# gunicorn is silent (no request log, no exception traceback), which made
+# debugging the OIDC callback failure needlessly hard. "-" means stdout, so
+# both show up in `docker logs`.
+gunicorn -b 0.0.0.0:8000 --workers 2 --threads 4 --worker-class gthread --timeout 600 \
+    --access-logfile - --error-logfile - \
+    config.wsgi

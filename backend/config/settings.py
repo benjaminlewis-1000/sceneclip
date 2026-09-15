@@ -11,6 +11,25 @@ DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
 
 ALLOWED_HOSTS = os.environ.get("DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")
 
+# Django's own default (DEBUG=False, no ADMINS configured) is to mail
+# nobody and print nothing -- a request-handling exception is completely
+# invisible in `docker logs`. Route it to the console instead, which
+# `docker logs` already captures; allauth logs its own social-login
+# failures (token exchange errors, etc.) through "allauth.*" separately
+# from Django's own "django.request" 500 logging, so both are wired here.
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {"class": "logging.StreamHandler"},
+    },
+    "root": {"handlers": ["console"], "level": "WARNING"},
+    "loggers": {
+        "django": {"handlers": ["console"], "level": "INFO", "propagate": False},
+        "allauth": {"handlers": ["console"], "level": "INFO", "propagate": False},
+    },
+}
+
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
@@ -157,7 +176,14 @@ SOCIALACCOUNT_PROVIDERS = {
                 "client_id": "sceneclip",
                 "secret": os.environ["AUTHELIA_SECRET"],
                 "settings": {
-                    "server_url": "https://auth.exploretheworld.tech/.well-known/openid-configuration"
+                    "server_url": "https://auth.exploretheworld.tech/.well-known/openid-configuration",
+                    # Authelia's discovery doc advertises client_secret_basic
+                    # as a globally supported method, so allauth's adapter
+                    # defaults to it -- but this client was registered in
+                    # Authelia's config with token_endpoint_auth_method:
+                    # 'client_secret_post' only, and Authelia rejects the
+                    # mismatch with invalid_client. Must match that exactly.
+                    "token_auth_method": "client_secret_post",
                 },
             }
         ]
@@ -167,6 +193,7 @@ SOCIALACCOUNT_PROVIDERS = {
 SOCIALACCOUNT_EMAIL_AUTHENTICATION = True
 SOCIALACCOUNT_EMAIL_AUTHENTICATION_AUTO_CONNECT = True
 SOCIALACCOUNT_LOGIN_ON_GET = True
+SOCIALACCOUNT_ADAPTER = "videos.adapters.LoggingSocialAccountAdapter"
 
 LOGIN_REDIRECT_URL = f"https://{os.environ.get('APP_DOMAIN', 'localhost')}/"
 LOGOUT_REDIRECT_URL = f"https://{os.environ.get('APP_DOMAIN', 'localhost')}/"

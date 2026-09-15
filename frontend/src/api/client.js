@@ -31,8 +31,18 @@ async function request(path, options = {}) {
     ...options,
   });
   if (res.status === 403) {
-    redirectToLogin();
-    return new Promise(() => {}); // navigating away -- never resolve
+    const text = await res.text().catch(() => "");
+    // Django's CSRF middleware also returns 403, and would otherwise look
+    // identical to "not logged in" here -- redirecting to login on THAT is
+    // wrong (you're already authenticated) and, worse, self-perpetuating:
+    // Authelia silently re-approves an existing SSO session and bounces
+    // you right back, hitting the same broken request again. Only treat
+    // this as "need to log in" when the body doesn't mention CSRF.
+    if (!/csrf/i.test(text)) {
+      redirectToLogin();
+      return new Promise(() => {}); // navigating away -- never resolve
+    }
+    throw new Error(`403 ${res.statusText}: ${text}`);
   }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
