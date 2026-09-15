@@ -2,7 +2,7 @@
 # proposed boundaries, the derived scenes, and polled notifications.
 from django.db.models import Exists, OuterRef
 from django.utils import timezone
-from rest_framework import status, viewsets
+from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -147,6 +147,14 @@ class VideoViewSet(viewsets.ModelViewSet):
             video.save(update_fields=["detection_params_override"])
 
         run = DetectionRun.objects.create(video=video, params=params)
+        # Flips to DETECTING here, at queue time -- not inside the task once
+        # a worker slot actually picks it up. With worker concurrency capped
+        # (2 by default), queuing a 3rd/4th video used to leave its
+        # Video.status looking like "pending" until a slot freed up, so the
+        # UI showed no sign anything had happened and its Reprocess button
+        # stayed enabled, inviting a duplicate click.
+        video.status = Video.Status.DETECTING
+        video.save(update_fields=["status"])
         run_detection_task.delay(run.id)
         return Response(DetectionRunSerializer(run).data, status=status.HTTP_202_ACCEPTED)
 
@@ -261,9 +269,10 @@ class SceneViewSet(viewsets.ModelViewSet):
         return qs
 
 
-class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
-    """Read-only + mark_read; the frontend polls GET /api/notifications/ on
-    an interval rather than this pushing anything (see App.jsx)."""
+class NotificationViewSet(mixins.DestroyModelMixin, viewsets.ReadOnlyModelViewSet):
+    """Read-only + mark_read, plus clearing (individually via DELETE, or all
+    at once) -- the frontend polls GET /api/notifications/ on an interval
+    rather than this pushing anything (see App.jsx)."""
 
     queryset = Notification.objects.all()
     serializer_class = NotificationSerializer
@@ -282,3 +291,8 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
         notif.read = True
         notif.save(update_fields=["read"])
         return Response(NotificationSerializer(notif).data)
+
+    @action(detail=False, methods=["post"])
+    def clear_all(self, request):
+        deleted_count, _ = Notification.objects.all().delete()
+        return Response({"deleted": deleted_count})

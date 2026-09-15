@@ -12,10 +12,26 @@ import { api } from "../api/client.js";
 const IN_PROGRESS_STATUSES = new Set(["detecting"]);
 const POLL_MS = 3000;
 
+// Bubble order: finished-detecting (actionable -- ready to review) first,
+// then actively-detecting (worth watching), then not-yet-started, then
+// fully exported (least relevant, nothing left to do). Marked-done videos
+// sink below everything else regardless of status, independent of this.
+const STATUS_ORDER = { reviewing: 0, detecting: 1, pending: 2, exported: 3 };
+
+const FILTERS = [
+  { key: "all", label: "All" },
+  { key: "reviewing", label: "Ready to review" },
+  { key: "detecting", label: "Detecting" },
+  { key: "pending", label: "Not started" },
+  { key: "exported", label: "Exported" },
+  { key: "done", label: "Marked done" },
+];
+
 export default function VideoList() {
   const [videos, setVideos] = useState([]);
   const [syncing, setSyncing] = useState(true);
   const [browserOpen, setBrowserOpen] = useState(false);
+  const [filter, setFilter] = useState("all");
 
   const refresh = useCallback(() => api.listVideos().then(setVideos), []);
 
@@ -81,6 +97,16 @@ export default function VideoList() {
   };
   const pendingCount = videos.filter((v) => v.status === "pending").length;
 
+  const sortedVideos = [...videos].sort((a, b) => {
+    if (a.marked_done !== b.marked_done) return a.marked_done ? 1 : -1;
+    return (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99);
+  });
+  const visibleVideos = sortedVideos.filter((v) => {
+    if (filter === "all") return true;
+    if (filter === "done") return v.marked_done;
+    return v.status === filter;
+  });
+
   return (
     <div>
       <h1>Videos</h1>
@@ -96,10 +122,22 @@ export default function VideoList() {
         </button>
       </div>
 
+      <div className="filter-toolbar">
+        {FILTERS.map((f) => (
+          <button
+            key={f.key}
+            className={filter === f.key ? "active" : ""}
+            onClick={() => setFilter(f.key)}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
       {browserOpen && <DirectoryBrowser onPick={addVideo} onClose={() => setBrowserOpen(false)} />}
 
       <div className="video-cards">
-        {videos.map((v) => (
+        {visibleVideos.map((v) => (
           <VideoCard
             key={v.id}
             video={v}
@@ -111,6 +149,7 @@ export default function VideoList() {
         {videos.length === 0 && !syncing && (
           <p>No videos found under the default directory. Use "Add from a different path" to add one.</p>
         )}
+        {videos.length > 0 && visibleVideos.length === 0 && <p>No videos match this filter.</p>}
       </div>
     </div>
   );

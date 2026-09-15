@@ -16,15 +16,29 @@ export default function NotificationsTab() {
     refresh();
   };
 
+  const clearOne = async (id) => {
+    await api.deleteNotification(id);
+    refresh();
+  };
+
+  const clearAll = async () => {
+    await api.clearAllNotifications();
+    refresh();
+  };
+
   return (
     <div>
-      <h1>Notifications</h1>
+      <div className="notifications-header">
+        <h1>Notifications</h1>
+        {notifications.length > 0 && <button onClick={clearAll}>Clear all</button>}
+      </div>
       <ul className="notification-list">
         {notifications.map((n) => (
           <li key={n.id} className={n.read ? "read" : "unread"}>
             <span>{n.message}</span>
             <span className="notif-time">{new Date(n.created_at).toLocaleString()}</span>
             {!n.read && <button onClick={() => markRead(n.id)}>Dismiss</button>}
+            <button onClick={() => clearOne(n.id)}>Clear</button>
           </li>
         ))}
         {notifications.length === 0 && <li>No notifications yet.</li>}

@@ -5,7 +5,7 @@ import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
 
-from videos.models import DetectionRun, SceneBoundary, Video
+from videos.models import DetectionRun, Notification, SceneBoundary, Video
 
 pytestmark = pytest.mark.django_db
 
@@ -116,3 +116,36 @@ def test_video_serializer_flags_boundary_and_approval_state():
     boundary.save(update_fields=["review_status"])
     response = client.get(f"/api/videos/{video.id}/")
     assert response.data["has_approved_boundaries"] is True
+
+
+def test_detect_marks_video_detecting_immediately_at_queue_time():
+    # Video.status must flip the moment a run is queued, not only once a
+    # Celery worker slot actually starts it -- otherwise, with worker
+    # concurrency capped, a video queued behind others in the backlog looks
+    # untouched ("pending", Reprocess still enabled) even though a run
+    # genuinely exists for it.
+    user = get_user_model().objects.create_user(username="benjamin7", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape7.mp4")
+    response = client.post(f"/api/videos/{video.id}/detect/", {}, format="json")
+    assert response.status_code == 202
+
+    video.refresh_from_db()
+    assert video.status == Video.Status.DETECTING
+
+
+def test_notifications_clear_all():
+    user = get_user_model().objects.create_user(username="benjamin8", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape8.mp4")
+    Notification.objects.create(video=video, kind=Notification.Kind.DETECTION_DONE, message="a")
+    Notification.objects.create(video=video, kind=Notification.Kind.DETECTION_DONE, message="b")
+
+    response = client.post("/api/notifications/clear_all/")
+    assert response.status_code == 200
+    assert response.data["deleted"] == 2
+    assert Notification.objects.count() == 0

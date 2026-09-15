@@ -99,6 +99,8 @@ export const api = {
     request(`/api/notifications/${since ? `?since=${encodeURIComponent(since)}` : ""}`),
   markNotificationRead: (id) =>
     request(`/api/notifications/${id}/mark_read/`, { method: "POST" }),
+  deleteNotification: (id) => request(`/api/notifications/${id}/`, { method: "DELETE" }),
+  clearAllNotifications: () => request("/api/notifications/clear_all/", { method: "POST" }),
 
   getDetectionParams: () => request("/api/detection-params/"),
   updateDetectionParams: (data) =>
