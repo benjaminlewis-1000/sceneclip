@@ -177,7 +177,7 @@ button.active {
   font-weight: 600;
 }
 
-.review-actions, .speed-controls, .scrub-controls, .params-actions, .tile-actions {
+.review-actions, .speed-controls, .scrub-controls, .peek-controls, .params-actions, .tile-actions {
   display: flex;
   gap: 0.5rem;
   margin-top: 0.75rem;

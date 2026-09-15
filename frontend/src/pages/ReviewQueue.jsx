@@ -28,6 +28,17 @@ export default function ReviewQueue() {
   const [clipVersion, setClipVersion] = useState(0); // cache-bust the <video> src after an adjustment
   const videoRef = useRef(null);
 
+  // Full, timestamp-ordered boundary list for the scoped video (any status,
+  // not just pending) -- lets Prev/Next scene step through nearby cuts for
+  // context ("is this actually a real break, or does it help to see what's
+  // a couple scenes ahead?") without disturbing the actual decide/auto-
+  // advance flow, which still always targets `boundary` (the real next-
+  // pending item from the server). Only meaningful when scoped to one
+  // video; peeking across unrelated videos in the library-wide queue
+  // wouldn't mean anything.
+  const [allBoundaries, setAllBoundaries] = useState([]);
+  const [peekIndex, setPeekIndex] = useState(0);
+
   // Local editable copies of the boundary's before/after log fields --
   // separate from `boundary` itself so typing doesn't fight the polling/
   // reload cycle; synced from the boundary whenever a new one loads.
@@ -61,6 +72,15 @@ export default function ReviewQueue() {
       }
       setBoundary(next);
       syncFieldsFrom(next);
+
+      if (scopedVideoId) {
+        const list = await api.listBoundaries({ video: scopedVideoId });
+        setAllBoundaries(list);
+        const idx = next ? list.findIndex((b) => b.id === next.id) : -1;
+        setPeekIndex(idx >= 0 ? idx : 0);
+      } else {
+        setAllBoundaries([]);
+      }
     },
     [scopedVideoId]
   );
@@ -121,6 +141,14 @@ export default function ReviewQueue() {
     [boundary, beforeDescription, beforeDate, afterDescription, afterDate, loadNext]
   );
 
+  const currentIndex = boundary ? allBoundaries.findIndex((b) => b.id === boundary.id) : -1;
+  const isPeeking = allBoundaries.length > 0 && currentIndex >= 0 && peekIndex !== currentIndex;
+  const peekBoundary = isPeeking ? allBoundaries[peekIndex] : boundary;
+
+  const peekPrev = () => setPeekIndex((i) => Math.max(0, i - 1));
+  const peekNext = () => setPeekIndex((i) => Math.min(allBoundaries.length - 1, i + 1));
+  const returnToCurrent = () => setPeekIndex(currentIndex);
+
   const replay = useCallback(() => {
     if (videoRef.current) {
       videoRef.current.currentTime = 0;
@@ -149,9 +177,13 @@ export default function ReviewQueue() {
   }, [boundary]);
 
   // Hotkeys: Y/right-arrow approve, N/left-arrow reject, R/space replay.
+  // Disabled while peeking ahead/behind -- Y/N should never fire against
+  // whatever clip happens to be on screen while browsing for context; jump
+  // back to the actual current boundary first ("Back to current").
   useEffect(() => {
     const onKeyDown = (e) => {
       if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+      if (isPeeking) return;
       switch (e.key.toLowerCase()) {
         case "y":
         case "arrowright":
@@ -172,7 +204,7 @@ export default function ReviewQueue() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [decide, replay]);
+  }, [decide, replay, isPeeking]);
 
   if (boundary === undefined) {
     return (
@@ -203,12 +235,24 @@ export default function ReviewQueue() {
       <BackButton />
       <h1>{scopedVideoId ? "Review Queue (this video)" : "Review Queue"}</h1>
       <p className="boundary-meta">
-        {boundary.video_path} @ {formatTime(boundary.timestamp_seconds)}
+        {peekBoundary.video_path} @ {formatTime(peekBoundary.timestamp_seconds)}
+        {isPeeking && ` -- previewing (${peekBoundary.review_status}), not the current boundary`}
       </p>
+      {allBoundaries.length > 0 && (
+        <div className="peek-controls">
+          <button onClick={peekPrev} disabled={peekIndex <= 0}>
+            &laquo; Prev scene
+          </button>
+          <button onClick={peekNext} disabled={peekIndex >= allBoundaries.length - 1}>
+            Next scene &raquo;
+          </button>
+          {isPeeking && <button onClick={returnToCurrent}>Back to current</button>}
+        </div>
+      )}
       <video
         ref={videoRef}
-        key={`${boundary.id}-${clipVersion}`}
-        src={`/api/boundaries/${boundary.id}/clip/?v=${clipVersion}`}
+        key={`${peekBoundary.id}-${isPeeking ? "peek" : clipVersion}`}
+        src={`/api/boundaries/${peekBoundary.id}/clip/${isPeeking ? "" : `?v=${clipVersion}`}`}
         autoPlay
         controls
         style={{ maxWidth: "720px", width: "100%" }}
@@ -225,10 +269,17 @@ export default function ReviewQueue() {
         ))}
       </div>
       <div className="scrub-controls">
-        <button onClick={() => nudgeFrame(-1)}>&laquo; frame</button>
-        <button onClick={() => nudgeFrame(1)}>frame &raquo;</button>
-        <button onClick={setBoundaryHere}>Set boundary here</button>
+        <button onClick={() => nudgeFrame(-1)} disabled={isPeeking}>&laquo; frame</button>
+        <button onClick={() => nudgeFrame(1)} disabled={isPeeking}>frame &raquo;</button>
+        <button onClick={setBoundaryHere} disabled={isPeeking}>Set boundary here</button>
       </div>
+
+      {isPeeking && (
+        <p className="boundary-log-hint">
+          Previewing a nearby boundary for context -- the log below and approve/reject still apply
+          to the current boundary ({formatTime(boundary.timestamp_seconds)}), not this one.
+        </p>
+      )}
 
       <div className="boundary-log">
         <div className="boundary-log-row">
@@ -243,8 +294,18 @@ export default function ReviewQueue() {
           <input
             type="date"
             value={beforeDate}
-            onChange={(e) => setBeforeDate(e.target.value)}
-            onBlur={() => api.updateBoundary(boundary.id, { before_date: beforeDate || null })}
+            onChange={(e) => {
+              const value = e.target.value;
+              setBeforeDate(value);
+              // Default the After date to match -- same day unless the
+              // reviewer knows otherwise, and it's still freely editable
+              // afterward. Only fills in an actually-blank After date, so
+              // it never clobbers something already typed in.
+              if (!afterDate) setAfterDate(value);
+            }}
+            onBlur={() =>
+              api.updateBoundary(boundary.id, { before_date: beforeDate || null, after_date: afterDate || null })
+            }
           />
         </div>
         <div className="boundary-log-row">
@@ -270,11 +331,11 @@ export default function ReviewQueue() {
       </div>
 
       <div className="review-actions">
-        <button className="reject" onClick={() => decide("rejected")}>
+        <button className="reject" onClick={() => decide("rejected")} disabled={isPeeking}>
           Not a scene change (N)
         </button>
         <button onClick={replay}>Replay (R)</button>
-        <button className="approve" onClick={() => decide("approved")}>
+        <button className="approve" onClick={() => decide("approved")} disabled={isPeeking}>
           Real scene change (Y)
         </button>
       </div>
