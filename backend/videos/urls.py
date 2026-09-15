@@ -5,6 +5,7 @@ from django.urls import path
 from rest_framework.routers import DefaultRouter
 
 from .views import (
+    ClearDatabaseView,
     DetectionParamsView,
     NotificationViewSet,
     SceneBoundaryViewSet,
@@ -20,4 +21,5 @@ router.register("notifications", NotificationViewSet)
 
 urlpatterns = [
     path("detection-params/", DetectionParamsView.as_view(), name="detection-params"),
+    path("clear-database/", ClearDatabaseView.as_view(), name="clear-database"),
 ] + router.urls

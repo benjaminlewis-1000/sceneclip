@@ -8,6 +8,7 @@ import TileGrid from "./pages/TileGrid.jsx";
 import VideoList from "./pages/VideoList.jsx";
 import VideoDetail from "./pages/VideoDetail.jsx";
 import NotificationsTab from "./pages/NotificationsTab.jsx";
+import Settings from "./pages/Settings.jsx";
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -46,6 +47,7 @@ export default function App() {
         <NavLink to="/notifications">
           Notifications{unreadCount > 0 ? ` (${unreadCount})` : ""}
         </NavLink>
+        <NavLink to="/settings">Settings</NavLink>
         {/* Full Authelia SSO logout, not just this app's session -- see
         config/urls.py:logout_view. Plain <a>, not a fetch call, since the
         browser needs to actually follow the redirect chain out to Authelia
@@ -59,6 +61,7 @@ export default function App() {
           <Route path="/review" element={<ReviewQueue />} />
           <Route path="/grid" element={<TileGrid />} />
           <Route path="/notifications" element={<NotificationsTab />} />
+          <Route path="/settings" element={<Settings />} />
         </Routes>
       </main>
     </div>

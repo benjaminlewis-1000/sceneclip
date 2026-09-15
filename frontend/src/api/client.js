@@ -103,4 +103,7 @@ export const api = {
   getDetectionParams: () => request("/api/detection-params/"),
   updateDetectionParams: (data) =>
     request("/api/detection-params/", { method: "PUT", body: JSON.stringify(data) }),
+
+  clearDatabase: () =>
+    request("/api/clear-database/", { method: "POST", body: JSON.stringify({ confirm: "CLEAR" }) }),
 };

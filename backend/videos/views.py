@@ -53,6 +53,28 @@ class DetectionParamsView(APIView):
         return Response(serializer.data)
 
 
+CLEAR_DATABASE_CONFIRM_PHRASE = "CLEAR"
+
+
+class ClearDatabaseView(APIView):
+    """Wipes every Video (and, via CASCADE, every DetectionRun/
+    SceneBoundary/Scene/Notification) -- source files on disk are untouched,
+    this only resets the library back to "nothing scanned yet". Requires the
+    exact confirm phrase in the request body as a second guard beyond the
+    frontend's own confirmation UI, since this is destructive and
+    irreversible: a stray automated retry of a bare POST won't trigger it.
+    """
+
+    def post(self, request):
+        if request.data.get("confirm") != CLEAR_DATABASE_CONFIRM_PHRASE:
+            return Response(
+                {"error": f"Must include confirm: \"{CLEAR_DATABASE_CONFIRM_PHRASE}\" to proceed."},
+                status=400,
+            )
+        deleted_count, _ = Video.objects.all().delete()
+        return Response({"deleted": deleted_count})
+
+
 class VideoViewSet(viewsets.ModelViewSet):
     """Standard CRUD for Video rows, plus three async-job actions: kick off
     a detection run, kick off a final export, and stream the raw source file

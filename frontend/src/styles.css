@@ -44,6 +44,40 @@ body {
   margin-bottom: 1rem;
 }
 
+.danger-zone {
+  border: 1px solid #c34141;
+  border-radius: 6px;
+  padding: 1rem;
+  margin-top: 1rem;
+}
+
+.danger-zone h2 {
+  color: #e57373;
+  margin-top: 0;
+}
+
+.danger-confirm-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  margin: 0.75rem 0;
+  max-width: 240px;
+}
+
+.danger-button {
+  border-color: #c34141;
+}
+
+.danger-button:not(:disabled) {
+  background: #c34141;
+  color: #fff;
+}
+
+.danger-result {
+  color: #9aa0b4;
+  font-size: 0.9rem;
+}
+
 .app-main {
   padding: 1.5rem;
   max-width: 960px;
