@@ -84,14 +84,15 @@ export default function VideoDetail() {
     refresh();
   };
 
-  const undoBoundary = async (boundary) => {
+  const undoBoundary = async (boundaryId) => {
+    if (!boundaryId) return;
     const proceed = window.confirm(
       "Undo this boundary? Any already-encoded clip bordering it will be deleted and re-merged " +
         "into a single scene for re-review."
     );
     if (!proceed) return;
     try {
-      await api.undoBoundary(boundary.id);
+      await api.undoBoundary(boundaryId);
       refresh();
     } catch (err) {
       window.alert(err.message);
@@ -222,6 +223,20 @@ export default function VideoDetail() {
                   <button onClick={() => watchScene(s)} disabled={!s.exported}>
                     Watch
                   </button>
+                  <button
+                    onClick={() => undoBoundary(s.start_boundary)}
+                    disabled={!s.start_boundary || encoding}
+                    title={!s.start_boundary ? "This scene starts at the beginning of the video" : undefined}
+                  >
+                    Undo start
+                  </button>
+                  <button
+                    onClick={() => undoBoundary(s.end_boundary)}
+                    disabled={!s.end_boundary || encoding}
+                    title={!s.end_boundary ? "This scene is still open (no end cut yet)" : undefined}
+                  >
+                    Undo end
+                  </button>
                   {isOpenScene && !s.exported && (
                     <button
                       onClick={() => encodeScene(s)}
@@ -264,7 +279,7 @@ export default function VideoDetail() {
               <td>{formatTime(b.timestamp_seconds)}</td>
               <td>{b.review_status}</td>
               <td>
-                <button onClick={() => undoBoundary(b)}>Undo</button>
+                <button onClick={() => undoBoundary(b.id)}>Undo</button>
               </td>
             </tr>
           ))}
