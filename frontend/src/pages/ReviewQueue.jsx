@@ -28,12 +28,41 @@ export default function ReviewQueue() {
   const [clipVersion, setClipVersion] = useState(0); // cache-bust the <video> src after an adjustment
   const videoRef = useRef(null);
 
-  const loadNext = useCallback(async () => {
-    setBoundary(undefined);
-    setClipVersion(0);
-    const next = await api.nextQueueBoundary(scopedVideoId);
-    setBoundary(next);
-  }, [scopedVideoId]);
+  // Local editable copies of the boundary's before/after log fields --
+  // separate from `boundary` itself so typing doesn't fight the polling/
+  // reload cycle; synced from the boundary whenever a new one loads.
+  const [beforeDescription, setBeforeDescription] = useState("");
+  const [beforeDate, setBeforeDate] = useState("");
+  const [afterDescription, setAfterDescription] = useState("");
+  const [afterDate, setAfterDate] = useState("");
+
+  const syncFieldsFrom = (b) => {
+    setBeforeDescription(b?.before_description || "");
+    setBeforeDate(b?.before_date || "");
+    setAfterDescription(b?.after_description || "");
+    setAfterDate(b?.after_date || "");
+  };
+
+  // `carry` is the previous boundary's after_description/after_date --
+  // chronologically the same stretch of footage as the next boundary's
+  // "before", so it's written into the new boundary immediately rather
+  // than left for the reviewer to retype.
+  const loadNext = useCallback(
+    async (carry) => {
+      setBoundary(undefined);
+      setClipVersion(0);
+      let next = await api.nextQueueBoundary(scopedVideoId);
+      if (next && carry && (carry.description || carry.date) && !next.before_description && !next.before_date) {
+        next = await api.updateBoundary(next.id, {
+          before_description: carry.description,
+          before_date: carry.date || null,
+        });
+      }
+      setBoundary(next);
+      syncFieldsFrom(next);
+    },
+    [scopedVideoId]
+  );
 
   useEffect(() => {
     loadNext();
@@ -46,10 +75,19 @@ export default function ReviewQueue() {
   const decide = useCallback(
     async (verdict) => {
       if (!boundary) return;
+      // Flush whatever's currently typed (a field may not have been
+      // blurred yet) before moving on, then carry the after_* values
+      // forward as the next boundary's before_*.
+      await api.updateBoundary(boundary.id, {
+        before_description: beforeDescription,
+        before_date: beforeDate || null,
+        after_description: afterDescription,
+        after_date: afterDate || null,
+      });
       await api.reviewBoundary(boundary.id, verdict);
-      loadNext();
+      loadNext({ description: afterDescription, date: afterDate });
     },
-    [boundary, loadNext]
+    [boundary, beforeDescription, beforeDate, afterDescription, afterDate, loadNext]
   );
 
   const replay = useCallback(() => {
@@ -160,6 +198,45 @@ export default function ReviewQueue() {
         <button onClick={() => nudgeFrame(1)}>frame &raquo;</button>
         <button onClick={setBoundaryHere}>Set boundary here</button>
       </div>
+
+      <div className="boundary-log">
+        <div className="boundary-log-row">
+          <span className="boundary-log-label">Before</span>
+          <input
+            type="text"
+            placeholder="What's happening before this cut..."
+            value={beforeDescription}
+            onChange={(e) => setBeforeDescription(e.target.value)}
+            onBlur={() => api.updateBoundary(boundary.id, { before_description: beforeDescription })}
+          />
+          <input
+            type="date"
+            value={beforeDate}
+            onChange={(e) => setBeforeDate(e.target.value)}
+            onBlur={() => api.updateBoundary(boundary.id, { before_date: beforeDate || null })}
+          />
+        </div>
+        <div className="boundary-log-row">
+          <span className="boundary-log-label">After</span>
+          <input
+            type="text"
+            placeholder="What's happening after this cut..."
+            value={afterDescription}
+            onChange={(e) => setAfterDescription(e.target.value)}
+            onBlur={() => api.updateBoundary(boundary.id, { after_description: afterDescription })}
+          />
+          <input
+            type="date"
+            value={afterDate}
+            onChange={(e) => setAfterDate(e.target.value)}
+            onBlur={() => api.updateBoundary(boundary.id, { after_date: afterDate || null })}
+          />
+        </div>
+        <p className="boundary-log-hint">
+          "After" carries forward as "Before" on the next boundary automatically.
+        </p>
+      </div>
+
       <div className="review-actions">
         <button className="reject" onClick={() => decide("rejected")}>
           Not a scene change (N)

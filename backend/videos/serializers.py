@@ -75,8 +75,16 @@ class SceneBoundarySerializer(serializers.ModelSerializer):
         fields = [
             "id", "video", "video_path", "run", "timestamp_seconds",
             "review_status", "reviewed_at", "matched_from", "created_at",
+            "before_description", "before_date", "after_description", "after_date",
         ]
-        read_only_fields = ["video", "run", "timestamp_seconds", "matched_from", "created_at"]
+        # review_status/reviewed_at stay read-only here: the dedicated
+        # `review` action is the only path that should set them, since it
+        # also triggers rebuild_scenes() as a side effect -- a plain PATCH
+        # setting review_status directly would silently skip that.
+        read_only_fields = [
+            "video", "run", "timestamp_seconds", "matched_from", "created_at",
+            "review_status", "reviewed_at",
+        ]
 
 
 class SceneSerializer(serializers.ModelSerializer):

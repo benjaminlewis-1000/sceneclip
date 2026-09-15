@@ -90,6 +90,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ timestamp_seconds: timestampSeconds }),
     }),
+  updateBoundary: (id, data) =>
+    request(`/api/boundaries/${id}/`, { method: "PATCH", body: JSON.stringify(data) }),
 
   listScenes: (videoId) => request(`/api/scenes/?video=${videoId}`),
   updateScene: (id, data) =>

@@ -174,11 +174,16 @@ class VideoViewSet(viewsets.ModelViewSet):
         return serve_file_with_range(request, video.path)
 
 
-class SceneBoundaryViewSet(viewsets.ReadOnlyModelViewSet):
+class SceneBoundaryViewSet(
+    mixins.UpdateModelMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet
+):
     """Boundaries are only ever created by a detection run (see tasks.py),
-    never directly through this API -- so this viewset is read-only plus two
-    custom actions: `queue` (next thing to review) and `review` (record a
-    verdict), and `clip` to fetch the generated preview clip for one."""
+    never directly through this API, and their verdict only changes through
+    the dedicated `review` action (see the serializer for why) -- so no
+    create/destroy here. PATCH is enabled only for the before/after_*
+    enrichment fields (everything else is read-only on the serializer), plus
+    custom actions: `queue` (next thing to review), `review` (record a
+    verdict), `adjust` (nudge the timestamp), and `clip` (the preview clip)."""
 
     queryset = SceneBoundary.objects.select_related("video")
     serializer_class = SceneBoundarySerializer

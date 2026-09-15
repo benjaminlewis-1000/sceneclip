@@ -149,3 +149,44 @@ def test_notifications_clear_all():
     assert response.status_code == 200
     assert response.data["deleted"] == 2
     assert Notification.objects.count() == 0
+
+
+def test_boundary_patch_updates_before_after_fields():
+    user = get_user_model().objects.create_user(username="benjamin9", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape9.mp4")
+    run = DetectionRun.objects.create(video=video, params={})
+    boundary = SceneBoundary.objects.create(video=video, run=run, timestamp_seconds=10.0)
+
+    response = client.patch(
+        f"/api/boundaries/{boundary.id}/",
+        {"after_description": "Birthday cake", "after_date": "1994-06-01"},
+        format="json",
+    )
+    assert response.status_code == 200
+    boundary.refresh_from_db()
+    assert boundary.after_description == "Birthday cake"
+    assert str(boundary.after_date) == "1994-06-01"
+
+
+def test_boundary_patch_cannot_set_review_status_directly():
+    # review_status must only change through the dedicated `review` action
+    # (which also triggers rebuild_scenes()) -- a plain PATCH silently
+    # ignores it rather than applying it.
+    user = get_user_model().objects.create_user(username="benjamin10", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape10.mp4")
+    run = DetectionRun.objects.create(video=video, params={})
+    boundary = SceneBoundary.objects.create(video=video, run=run, timestamp_seconds=10.0)
+
+    client.patch(
+        f"/api/boundaries/{boundary.id}/",
+        {"review_status": "approved"},
+        format="json",
+    )
+    boundary.refresh_from_db()
+    assert boundary.review_status == SceneBoundary.ReviewStatus.PENDING

@@ -123,6 +123,37 @@ button.active {
   background: #3a3f52;
 }
 
+.boundary-log {
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background: #1c1f28;
+  border-radius: 6px;
+}
+
+.boundary-log-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.boundary-log-row input[type="text"] {
+  flex: 1;
+}
+
+.boundary-log-label {
+  width: 3.5rem;
+  flex-shrink: 0;
+  color: #9aa0b4;
+  font-size: 0.85rem;
+}
+
+.boundary-log-hint {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #7a8098;
+}
+
 .review-actions, .speed-controls, .scrub-controls, .params-actions, .tile-actions {
   display: flex;
   gap: 0.5rem;

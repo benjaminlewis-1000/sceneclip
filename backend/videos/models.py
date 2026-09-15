@@ -96,6 +96,18 @@ class SceneBoundary(models.Model):
     matched_from = models.ForeignKey(
         "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="carried_forward_to"
     )
+    # Free-text log of what's happening in the footage immediately before
+    # and after this specific transition, entered during review. Deliberately
+    # attached to the boundary rather than to Scene (which only exists for
+    # segments between *approved* cuts, and gets rebuilt/deleted as review
+    # progresses) -- a boundary always has a well-defined before/after
+    # regardless of its own verdict. The frontend carries a boundary's
+    # after_* values forward as the next boundary's before_* on advance,
+    # since chronologically they describe the same stretch of footage.
+    before_description = models.TextField(blank=True, default="")
+    before_date = models.DateField(null=True, blank=True)
+    after_description = models.TextField(blank=True, default="")
+    after_date = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
