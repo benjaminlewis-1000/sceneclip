@@ -333,7 +333,8 @@ button.active {
   color: #9aa0b4;
 }
 
-.progress-finishing {
+.progress-finishing,
+.progress-queued {
   margin: 0.5rem 0 0;
   font-size: 0.8rem;
   color: #9aa0b4;

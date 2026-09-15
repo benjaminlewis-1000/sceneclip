@@ -179,7 +179,13 @@ function VideoCard({ video, onReprocess, onToggleDone }) {
         </div>
       </div>
 
-      {inProgress && video.detection_progress_percent >= 100 ? (
+      {inProgress && video.detection_run_status === "queued" ? (
+        // Queued but not yet picked up by a worker (worker concurrency is
+        // 2 -- a big "Process all" or the orphan-sweep's auto-retry can
+        // queue dozens at once). A 0% bar here would read as stuck; it's
+        // just waiting its turn.
+        <p className="progress-queued">Queued -- waiting for a worker slot...</p>
+      ) : inProgress && video.detection_progress_percent >= 100 ? (
         // PySceneDetect itself finishes (100%) before the task is done --
         // saving candidate boundaries, carrying forward prior review
         // verdicts, and rebuilding derived scenes all still happen after,

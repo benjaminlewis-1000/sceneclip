@@ -17,6 +17,12 @@ class VideoSerializer(serializers.ModelSerializer):
     # lets the library list show a progress bar without a second request
     # per video.
     detection_progress_percent = serializers.SerializerMethodField()
+    # Distinguishes "queued behind other work, hasn't started" from
+    # "actively running" -- both look like 0% progress otherwise, which
+    # reads as stuck when a video is just waiting its turn behind a big
+    # backlog (worker concurrency is 2; a "Process all" or the orphan-sweep
+    # auto-retry can queue dozens at once).
+    detection_run_status = serializers.SerializerMethodField()
     # Drive the frontend's button disabling: "Review this video" needs
     # something to review, "Export clips" needs at least one approved cut
     # to actually produce a chapter.
@@ -28,7 +34,7 @@ class VideoSerializer(serializers.ModelSerializer):
         fields = [
             "id", "path", "duration_seconds", "status", "marked_done",
             "export_progress_percent", "detection_progress_percent",
-            "has_boundaries", "has_approved_boundaries",
+            "detection_run_status", "has_boundaries", "has_approved_boundaries",
             "detection_params_override", "created_at", "updated_at",
         ]
         read_only_fields = [
@@ -36,11 +42,20 @@ class VideoSerializer(serializers.ModelSerializer):
             "created_at", "updated_at",
         ]
 
-    def get_detection_progress_percent(self, obj):
+    def _latest_run(self, obj):
         if obj.status != Video.Status.DETECTING:
             return None
-        latest_run = obj.runs.order_by("-created_at").first()
+        if not hasattr(obj, "_latest_run_cache"):
+            obj._latest_run_cache = obj.runs.order_by("-created_at").first()
+        return obj._latest_run_cache
+
+    def get_detection_progress_percent(self, obj):
+        latest_run = self._latest_run(obj)
         return latest_run.progress_percent if latest_run else None
+
+    def get_detection_run_status(self, obj):
+        latest_run = self._latest_run(obj)
+        return latest_run.status if latest_run else None
 
     def get_has_boundaries(self, obj):
         # VideoViewSet.get_queryset() annotates this with a single EXISTS
