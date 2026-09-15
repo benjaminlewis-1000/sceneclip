@@ -126,6 +126,18 @@ CELERY_TASK_TRACK_STARTED = True
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
+# Without TCP keepalive, a Redis connection that goes stale while idle (a
+# dropped connection nobody explicitly closed) leaves the worker blocked on
+# a read that will never return -- no error, no crash, just a queue that
+# silently stops draining. Hit this for real: 70 queued tasks sat untouched
+# for 12+ minutes after the first few ran, and only a worker restart
+# unstuck it. socket_keepalive plus a bounded timeout means a truly-dead
+# connection gets noticed and torn down instead of hanging forever.
+CELERY_BROKER_TRANSPORT_OPTIONS = {
+    "socket_keepalive": True,
+    "socket_timeout": 30,
+    "socket_connect_timeout": 30,
+}
 
 # ---------------------------------------------------------------------------
 # Auth: Authelia as an OIDC provider via django-allauth, same pattern as
