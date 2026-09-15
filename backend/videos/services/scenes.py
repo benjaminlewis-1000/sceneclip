@@ -2,9 +2,17 @@
 video's approved boundaries. Rejected/pending boundaries don't split
 anything -- only approved cut points become scene edges.
 """
-from django.db import transaction
+import os
+
+from django.db import models, transaction
 
 from ..models import Scene, SceneBoundary
+
+
+class SceneStillEncoding(Exception):
+    """Raised by undo_boundary_review when a scene bordering the boundary
+    is actively mid-encode -- undoing right now would delete/rewrite a file
+    a running ffmpeg process still has open."""
 
 
 def _seed_from_boundaries(start_b, end_b):
@@ -103,3 +111,55 @@ def scenes_ready_to_encode(video):
         export_progress_percent__isnull=True,
         scene_date__isnull=False,
     )
+
+
+@transaction.atomic
+def undo_boundary_review(boundary: SceneBoundary) -> None:
+    """Reverts an approved/rejected boundary back to pending. An approved
+    boundary is the shared edge of two adjacent scenes (one's end_boundary,
+    the next's start_boundary); undoing it means those two scenes are about
+    to merge back into one, so any Scene actually touching this boundary
+    that's already been encoded has its output file deleted from disk (the
+    merged scene will need a fresh encode covering the wider span) and its
+    exported state reset -- otherwise rebuild_scenes()'s own "never drop an
+    exported scene" guard would leave it stranded, orphaned from the new
+    cut points but still marked exported, with its file never cleaned up.
+
+    Raises SceneStillEncoding, changing nothing, if any bordering scene is
+    actively mid-encode -- its ffmpeg process may still have the very file
+    this would delete open for writing.
+    """
+    affected = list(
+        Scene.objects.filter(video=boundary.video).filter(
+            models.Q(start_boundary=boundary) | models.Q(end_boundary=boundary)
+        )
+    )
+    if any(s.export_progress_percent is not None for s in affected):
+        raise SceneStillEncoding(
+            "A scene bordering this boundary is still encoding -- wait for it to finish before undoing."
+        )
+
+    for scene in affected:
+        if scene.exported and scene.exported_path:
+            try:
+                os.remove(scene.exported_path)
+            except OSError:
+                pass
+        scene.exported = False
+        scene.exported_path = ""
+        scene.verified = False
+        scene.export_progress_percent = None
+        scene.encode_started_at = None
+        scene.save(
+            update_fields=[
+                "exported", "exported_path", "verified",
+                "export_progress_percent", "encode_started_at",
+            ]
+        )
+
+    boundary.review_status = SceneBoundary.ReviewStatus.PENDING
+    boundary.reviewed_at = None
+    boundary.matched_from = None
+    boundary.save(update_fields=["review_status", "reviewed_at", "matched_from"])
+
+    rebuild_scenes(boundary.video)

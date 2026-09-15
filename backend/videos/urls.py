@@ -10,6 +10,7 @@ from .views import (
     NotificationViewSet,
     SceneBoundaryViewSet,
     SceneViewSet,
+    TaskQueueView,
     VideoViewSet,
 )
 
@@ -22,4 +23,5 @@ router.register("notifications", NotificationViewSet)
 urlpatterns = [
     path("detection-params/", DetectionParamsView.as_view(), name="detection-params"),
     path("clear-database/", ClearDatabaseView.as_view(), name="clear-database"),
+    path("queue/", TaskQueueView.as_view(), name="task-queue"),
 ] + router.urls

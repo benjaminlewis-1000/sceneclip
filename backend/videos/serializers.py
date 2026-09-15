@@ -104,13 +104,17 @@ class SceneBoundarySerializer(serializers.ModelSerializer):
 
 class SceneSerializer(serializers.ModelSerializer):
     video_path = serializers.CharField(source="video.path", read_only=True)
+    # Mirrors VideoSerializer.detection_run_status: distinguishes "queued
+    # behind other work" from "actually encoding right now," both of which
+    # otherwise look identical (export_progress_percent == 0).
+    encode_status = serializers.SerializerMethodField()
 
     class Meta:
         model = Scene
         fields = [
             "id", "video", "video_path", "start_boundary", "end_boundary", "start_seconds",
             "end_seconds", "description", "scene_date", "exported",
-            "exported_path", "export_progress_percent", "verified",
+            "exported_path", "export_progress_percent", "encode_status", "verified",
             "created_at", "updated_at",
         ]
         # verified only changes through the dedicated `verify` action (which
@@ -120,6 +124,11 @@ class SceneSerializer(serializers.ModelSerializer):
             "exported", "exported_path", "export_progress_percent", "verified",
             "created_at", "updated_at",
         ]
+
+    def get_encode_status(self, obj):
+        if obj.export_progress_percent is None:
+            return None
+        return "encoding" if obj.encode_started_at else "queued"
 
 
 class NotificationSerializer(serializers.ModelSerializer):

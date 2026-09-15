@@ -92,6 +92,7 @@ export const api = {
     }),
   updateBoundary: (id, data) =>
     request(`/api/boundaries/${id}/`, { method: "PATCH", body: JSON.stringify(data) }),
+  undoBoundary: (id) => request(`/api/boundaries/${id}/undo/`, { method: "POST" }),
 
   listScenes: (videoId) => request(`/api/scenes/?video=${videoId}`),
   updateScene: (id, data) =>
@@ -115,4 +116,6 @@ export const api = {
 
   clearDatabase: () =>
     request("/api/clear-database/", { method: "POST", body: JSON.stringify({ confirm: "CLEAR" }) }),
+
+  taskQueue: () => request("/api/queue/"),
 };

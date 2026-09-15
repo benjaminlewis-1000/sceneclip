@@ -89,7 +89,8 @@ def sweep_orphaned_work(only_unconditional: bool = False) -> dict:
         scenes = scenes.filter(updated_at__lt=now - STALE_SCENE_ENCODE_AGE)
     for scene in scenes:
         scene.export_progress_percent = None
-        scene.save(update_fields=["export_progress_percent"])
+        scene.encode_started_at = None
+        scene.save(update_fields=["export_progress_percent", "encode_started_at"])
 
         Notification.objects.create(
             video=scene.video,
@@ -231,8 +232,12 @@ def export_scene_task(self, scene_id: int):
 
     scene = Scene.objects.select_related("video").get(id=scene_id)
     video = scene.video
+    # export_progress_percent was already set to 0 when this was queued
+    # (trigger_auto_encode / the manual `encode` action) -- encode_started_at
+    # is what actually flips here, now that a worker has picked it up.
     scene.export_progress_percent = 0
-    scene.save(update_fields=["export_progress_percent"])
+    scene.encode_started_at = timezone.now()
+    scene.save(update_fields=["export_progress_percent", "encode_started_at"])
 
     def on_progress(fraction: float) -> None:
         Scene.objects.filter(id=scene.id).update(export_progress_percent=min(99, int(fraction * 100)))
@@ -245,7 +250,7 @@ def export_scene_task(self, scene_id: int):
             message=f"Encoded scene {scene.start_seconds:.0f}s-{scene.end_seconds:.0f}s for {video.path}.",
         )
     except Exception as exc:
-        Scene.objects.filter(id=scene.id).update(export_progress_percent=None)
+        Scene.objects.filter(id=scene.id).update(export_progress_percent=None, encode_started_at=None)
         Notification.objects.create(
             video=video,
             kind=Notification.Kind.EXPORT_FAILED,

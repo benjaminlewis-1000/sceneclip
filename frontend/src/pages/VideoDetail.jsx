@@ -16,6 +16,7 @@ export default function VideoDetail() {
   const { videoId } = useParams();
   const [video, setVideo] = useState(null);
   const [scenes, setScenes] = useState([]);
+  const [boundaries, setBoundaries] = useState([]);
   const [params, setParams] = useState({ detector: "adaptive", threshold: 3.0, min_scene_len_seconds: 2.0 });
   const [speed, setSpeed] = useState(1);
   // null = playing the raw source (top player); otherwise the scene whose
@@ -28,6 +29,7 @@ export default function VideoDetail() {
     setVideo(v);
     setParams(v.detection_params_override || (await api.getDetectionParams()));
     setScenes(await api.listScenes(videoId));
+    setBoundaries(await api.listBoundaries({ video: videoId }));
   };
 
   useEffect(() => {
@@ -82,7 +84,25 @@ export default function VideoDetail() {
     refresh();
   };
 
+  const undoBoundary = async (boundary) => {
+    const proceed = window.confirm(
+      "Undo this boundary? Any already-encoded clip bordering it will be deleted and re-merged " +
+        "into a single scene for re-review."
+    );
+    if (!proceed) return;
+    try {
+      await api.undoBoundary(boundary.id);
+      refresh();
+    } catch (err) {
+      window.alert(err.message);
+    }
+  };
+
   if (!video) return <p>Loading...</p>;
+
+  const reviewedBoundaries = boundaries
+    .filter((b) => b.review_status !== "pending")
+    .sort((a, b) => a.timestamp_seconds - b.timestamp_seconds);
 
   const playerSrc = watchingSceneId
     ? api.sceneClipUrl(watchingSceneId)
@@ -189,7 +209,13 @@ export default function VideoDetail() {
                   />
                 </td>
                 <td>
-                  {encoding ? `${s.export_progress_percent}%...` : s.exported ? "yes" : "no"}
+                  {encoding
+                    ? s.encode_status === "encoding"
+                      ? `${s.export_progress_percent}%...`
+                      : "Queued"
+                    : s.exported
+                    ? "yes"
+                    : "no"}
                 </td>
                 <td>{s.verified ? "✓" : ""}</td>
                 <td className="scene-table-actions">
@@ -221,6 +247,37 @@ export default function VideoDetail() {
       <p className="boundary-log-hint">
         Closed scenes encode automatically once dated during review. Unverified encoded scenes
         show up in the <Link to="/verify">Verify queue</Link>.
+      </p>
+
+      <h2>Reviewed boundaries</h2>
+      <table className="scene-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Verdict</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {reviewedBoundaries.map((b) => (
+            <tr key={b.id}>
+              <td>{formatTime(b.timestamp_seconds)}</td>
+              <td>{b.review_status}</td>
+              <td>
+                <button onClick={() => undoBoundary(b)}>Undo</button>
+              </td>
+            </tr>
+          ))}
+          {reviewedBoundaries.length === 0 && (
+            <tr>
+              <td colSpan="3">No boundaries reviewed yet.</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      <p className="boundary-log-hint">
+        Undoing an approved boundary merges its two neighboring scenes back into one for
+        re-review -- if either was already encoded, that clip is deleted from disk.
       </p>
     </div>
   );

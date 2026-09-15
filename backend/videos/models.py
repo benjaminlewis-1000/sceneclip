@@ -143,6 +143,12 @@ class Scene(models.Model):
     # time by the next boundary review (see services/scenes.py's auto-
     # encode trigger).
     export_progress_percent = models.IntegerField(null=True, blank=True)
+    # Set the moment export_scene_task actually starts running (as opposed
+    # to export_progress_percent, which is set to 0 as soon as the task is
+    # merely queued) -- distinguishes "queued behind other work" from
+    # "actively encoding" the same way DetectionRun.status does for
+    # detection, without needing to poll Celery itself.
+    encode_started_at = models.DateTimeField(null=True, blank=True)
     # A human "I watched the final encoded clip and it's right" checkpoint,
     # separate from boundary review -- set via the Verify queue.
     verified = models.BooleanField(default=False)

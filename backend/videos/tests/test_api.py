@@ -302,3 +302,79 @@ def test_scene_verify_queue_returns_next_unverified_exported_scene():
     response = client.get("/api/scenes/verify_queue/")
     assert response.status_code == 200
     assert response.data["id"] == ready.id
+
+
+def test_undo_boundary_endpoint_reverts_and_rebuilds():
+    user = get_user_model().objects.create_user(username="benjamin17", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape17.mp4", duration_seconds=60.0)
+    run = DetectionRun.objects.create(video=video, params={})
+    boundary = SceneBoundary.objects.create(
+        video=video, run=run, timestamp_seconds=30.0, review_status=SceneBoundary.ReviewStatus.APPROVED
+    )
+    from videos.services.scenes import rebuild_scenes
+    rebuild_scenes(video)
+    assert video.scenes.count() == 2
+
+    response = client.post(f"/api/boundaries/{boundary.id}/undo/")
+    assert response.status_code == 200
+    boundary.refresh_from_db()
+    assert boundary.review_status == SceneBoundary.ReviewStatus.PENDING
+    assert video.scenes.count() == 1
+
+
+def test_undo_boundary_endpoint_rejects_already_pending():
+    user = get_user_model().objects.create_user(username="benjamin18", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape18.mp4")
+    run = DetectionRun.objects.create(video=video, params={})
+    boundary = SceneBoundary.objects.create(video=video, run=run, timestamp_seconds=10.0)
+
+    response = client.post(f"/api/boundaries/{boundary.id}/undo/")
+    assert response.status_code == 400
+
+
+def test_undo_boundary_endpoint_blocks_while_encoding():
+    user = get_user_model().objects.create_user(username="benjamin19", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape19.mp4", duration_seconds=60.0)
+    run = DetectionRun.objects.create(video=video, params={})
+    boundary = SceneBoundary.objects.create(
+        video=video, run=run, timestamp_seconds=30.0, review_status=SceneBoundary.ReviewStatus.APPROVED
+    )
+    from videos.services.scenes import rebuild_scenes
+    rebuild_scenes(video)
+    scene = video.scenes.get(start_seconds=0.0)
+    scene.export_progress_percent = 10
+    scene.save(update_fields=["export_progress_percent"])
+
+    response = client.post(f"/api/boundaries/{boundary.id}/undo/")
+    assert response.status_code == 400
+    boundary.refresh_from_db()
+    assert boundary.review_status == SceneBoundary.ReviewStatus.APPROVED
+
+
+def test_task_queue_endpoint_lists_running_and_queued_work():
+    user = get_user_model().objects.create_user(username="benjamin20", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape20.mp4", duration_seconds=60.0)
+    DetectionRun.objects.create(video=video, params={}, status=DetectionRun.Status.RUNNING, progress_percent=40)
+    DetectionRun.objects.create(video=video, params={}, status=DetectionRun.Status.QUEUED)
+    Scene.objects.create(
+        video=video, start_seconds=0.0, end_seconds=10.0,
+        export_progress_percent=55, encode_started_at="2026-01-01T00:00:00Z",
+    )
+    Scene.objects.create(video=video, start_seconds=10.0, end_seconds=20.0, export_progress_percent=0)
+
+    response = client.get("/api/queue/")
+    assert response.status_code == 200
+    assert [r["status"] for r in response.data["detection"]] == ["running", "queued"]
+    assert [s["status"] for s in response.data["encoding"]] == ["encoding", "queued"]

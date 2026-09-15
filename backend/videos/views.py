@@ -20,7 +20,7 @@ from .services.browse import InvalidBrowsePath, list_directory
 from .services.clips import ensure_preview_clip
 from .services.library import sync_library
 from .services.range_response import serve_file_with_range
-from .services.scenes import rebuild_scenes
+from .services.scenes import SceneStillEncoding, rebuild_scenes, undo_boundary_review
 from .services.thumbnail import ensure_thumbnail
 from .tasks import (
     export_scene_task,
@@ -79,6 +79,53 @@ class ClearDatabaseView(APIView):
             )
         deleted_count, _ = Video.objects.all().delete()
         return Response({"deleted": deleted_count})
+
+
+class TaskQueueView(APIView):
+    """Read-only snapshot of everything currently detecting or encoding
+    library-wide, running work first then queued -- backs the Settings
+    page's "Task queue" section so it's possible to see at a glance that a
+    big backlog is actually moving, not just watch one video's card at a
+    time."""
+
+    def get(self, request):
+        runs = list(
+            DetectionRun.objects.filter(
+                status__in=[DetectionRun.Status.QUEUED, DetectionRun.Status.RUNNING]
+            ).select_related("video").order_by("created_at")
+        )
+        runs.sort(key=lambda r: 0 if r.status == DetectionRun.Status.RUNNING else 1)
+        detection = [
+            {
+                "run_id": r.id,
+                "video_id": r.video_id,
+                "video_path": r.video.path,
+                "status": r.status,
+                "progress_percent": r.progress_percent,
+                "created_at": r.created_at,
+            }
+            for r in runs
+        ]
+
+        scenes = list(
+            Scene.objects.filter(export_progress_percent__isnull=False)
+            .select_related("video").order_by("created_at")
+        )
+        scenes.sort(key=lambda s: 0 if s.encode_started_at else 1)
+        encoding = [
+            {
+                "scene_id": s.id,
+                "video_id": s.video_id,
+                "video_path": s.video.path,
+                "start_seconds": s.start_seconds,
+                "end_seconds": s.end_seconds,
+                "status": "encoding" if s.encode_started_at else "queued",
+                "progress_percent": s.export_progress_percent,
+            }
+            for s in scenes
+        ]
+
+        return Response({"detection": detection, "encoding": encoding})
 
 
 class VideoViewSet(viewsets.ModelViewSet):
@@ -278,6 +325,21 @@ class SceneBoundaryViewSet(
         boundary = self.get_object()
         path = ensure_preview_clip(boundary.video, boundary)
         return serve_file_with_range(request, path)
+
+    @action(detail=True, methods=["post"])
+    def undo(self, request, pk=None):
+        # Reverts an approved/rejected boundary back to pending -- see
+        # services/scenes.py:undo_boundary_review for what this does to any
+        # scene that boundary borders.
+        boundary = self.get_object()
+        if boundary.review_status == SceneBoundary.ReviewStatus.PENDING:
+            return Response({"error": "Already pending."}, status=400)
+        try:
+            undo_boundary_review(boundary)
+        except SceneStillEncoding as exc:
+            return Response({"error": str(exc)}, status=400)
+        boundary.refresh_from_db()
+        return Response(SceneBoundarySerializer(boundary).data)
 
 
 class SceneViewSet(viewsets.ModelViewSet):

@@ -2,10 +2,12 @@
 # the two invariants that matter for the review workflow -- enrichment
 # fields on an unchanged segment survive a rebuild, and an already-exported
 # scene is never silently deleted even if its boundaries later change.
+import os
+
 import pytest
 
 from videos.models import DetectionRun, SceneBoundary, Video
-from videos.services.scenes import rebuild_scenes
+from videos.services.scenes import SceneStillEncoding, rebuild_scenes, undo_boundary_review
 
 pytestmark = pytest.mark.django_db
 
@@ -139,3 +141,62 @@ def test_rebuild_scenes_backfills_blank_existing_scene_from_boundary():
     rebuild_scenes(video)
 
     assert video.scenes.get(start_seconds=0.0).description == "Backyard BBQ"
+
+
+def test_undo_boundary_review_merges_scenes_and_reverts_to_pending():
+    video = Video.objects.create(path="/videos/tape.mp4", duration_seconds=90.0)
+    run = _run(video)
+    boundary = SceneBoundary.objects.create(
+        video=video, run=run, timestamp_seconds=30.0, review_status=SceneBoundary.ReviewStatus.APPROVED
+    )
+    rebuild_scenes(video)
+    assert video.scenes.count() == 2
+
+    undo_boundary_review(boundary)
+
+    boundary.refresh_from_db()
+    assert boundary.review_status == SceneBoundary.ReviewStatus.PENDING
+    assert list(video.scenes.values_list("start_seconds", "end_seconds")) == [(0.0, 90.0)]
+
+
+def test_undo_boundary_review_deletes_encoded_file_on_disk(tmp_path):
+    video = Video.objects.create(path="/videos/tape.mp4", duration_seconds=90.0)
+    run = _run(video)
+    boundary = SceneBoundary.objects.create(
+        video=video, run=run, timestamp_seconds=30.0, review_status=SceneBoundary.ReviewStatus.APPROVED
+    )
+    rebuild_scenes(video)
+
+    clip_path = tmp_path / "clip.mp4"
+    clip_path.write_bytes(b"fake mp4 data")
+    scene = video.scenes.get(start_seconds=0.0)
+    scene.exported = True
+    scene.exported_path = str(clip_path)
+    scene.verified = True
+    scene.save(update_fields=["exported", "exported_path", "verified"])
+
+    undo_boundary_review(boundary)
+
+    assert not os.path.exists(clip_path)
+    merged = video.scenes.get(start_seconds=0.0)
+    assert merged.exported is False
+    assert merged.exported_path == ""
+    assert merged.verified is False
+
+
+def test_undo_boundary_review_blocks_while_bordering_scene_is_encoding():
+    video = Video.objects.create(path="/videos/tape.mp4", duration_seconds=90.0)
+    run = _run(video)
+    boundary = SceneBoundary.objects.create(
+        video=video, run=run, timestamp_seconds=30.0, review_status=SceneBoundary.ReviewStatus.APPROVED
+    )
+    rebuild_scenes(video)
+    scene = video.scenes.get(start_seconds=0.0)
+    scene.export_progress_percent = 42
+    scene.save(update_fields=["export_progress_percent"])
+
+    with pytest.raises(SceneStillEncoding):
+        undo_boundary_review(boundary)
+
+    boundary.refresh_from_db()
+    assert boundary.review_status == SceneBoundary.ReviewStatus.APPROVED  # unchanged
