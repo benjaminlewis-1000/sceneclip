@@ -186,17 +186,16 @@ function VideoCard({ video, onReprocess, onExport, onToggleDone }) {
         </div>
       </div>
 
-      {inProgress && (
-        <ProgressBar
-          // PySceneDetect itself finishes (100%) before the task is done --
-          // saving candidate boundaries, carrying forward prior review
-          // verdicts, and rebuilding derived scenes all still happen after,
-          // which can take a real moment for a video with a lot of
-          // boundaries or review history. Without this, a 100% bar just
-          // sits there looking stuck.
-          label={video.detection_progress_percent >= 100 ? "Finishing up (saving results)" : "Detecting"}
-          percent={video.detection_progress_percent}
-        />
+      {inProgress && video.detection_progress_percent >= 100 ? (
+        // PySceneDetect itself finishes (100%) before the task is done --
+        // saving candidate boundaries, carrying forward prior review
+        // verdicts, and rebuilding derived scenes all still happen after,
+        // which can take a real moment for a video with a lot of
+        // boundaries or review history. A bar frozen at 100% reads as
+        // stuck, so drop it and just say what's still happening.
+        <p className="progress-finishing">Finishing up (saving results)...</p>
+      ) : (
+        inProgress && <ProgressBar label="Detecting" percent={video.detection_progress_percent} />
       )}
       {exporting && <ProgressBar label="Exporting" percent={video.export_progress_percent} />}
 
