@@ -21,3 +21,9 @@ DATABASES = {
 
 CELERY_TASK_ALWAYS_EAGER = True
 PREVIEW_CLIPS_DIR = "/tmp/sceneclip_test_previews"
+# Without this, a test that approves a boundary triggers a real (eager)
+# export_scene_task, which falls through to the real OUTPUT_ROOT bind mount
+# and creates a stray directory there -- hit this for real: approving a
+# boundary in test_api.py created a "tape3" folder in the actual production
+# output share.
+OUTPUT_ROOT = "/tmp/sceneclip_test_output"
