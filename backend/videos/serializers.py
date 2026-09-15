@@ -43,9 +43,17 @@ class VideoSerializer(serializers.ModelSerializer):
         return latest_run.progress_percent if latest_run else None
 
     def get_has_boundaries(self, obj):
-        return obj.boundaries.exists()
+        # VideoViewSet.get_queryset() annotates this with a single EXISTS
+        # subquery for the whole list; fall back to a per-object query for
+        # anything serialized outside that queryset (e.g. the response to
+        # a fresh POST).
+        annotated = getattr(obj, "has_boundaries", None)
+        return annotated if annotated is not None else obj.boundaries.exists()
 
     def get_has_approved_boundaries(self, obj):
+        annotated = getattr(obj, "has_approved_boundaries", None)
+        if annotated is not None:
+            return annotated
         return obj.boundaries.filter(review_status=SceneBoundary.ReviewStatus.APPROVED).exists()
 
 

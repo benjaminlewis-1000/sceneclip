@@ -1,5 +1,6 @@
 # DRF viewsets for the whole API surface: videos, their detection runs and
 # proposed boundaries, the derived scenes, and polled notifications.
+from django.db.models import Exists, OuterRef
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -60,6 +61,20 @@ class VideoViewSet(viewsets.ModelViewSet):
 
     queryset = Video.objects.all()
     serializer_class = VideoSerializer
+
+    def get_queryset(self):
+        # Annotates has_boundaries/has_approved_boundaries with a single
+        # EXISTS subquery each rather than the serializer calling
+        # obj.boundaries.exists() per row -- on a library-sized list that
+        # was 2 extra queries per video (148 for 74 videos), noticeably
+        # slowing down exactly the request the library page waits on right
+        # after a scan.
+        boundary_qs = SceneBoundary.objects.filter(video=OuterRef("pk"))
+        approved_qs = boundary_qs.filter(review_status=SceneBoundary.ReviewStatus.APPROVED)
+        return Video.objects.annotate(
+            has_boundaries=Exists(boundary_qs),
+            has_approved_boundaries=Exists(approved_qs),
+        )
 
     def perform_create(self, serializer):
         # Manually-added videos (via the directory browser or a typed path)

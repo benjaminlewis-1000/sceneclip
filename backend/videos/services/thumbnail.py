@@ -7,9 +7,14 @@ import subprocess
 
 from django.conf import settings
 
-# Not right at 0:00 -- capture-card VHS rips are prone to a black/garbage
-# first frame or two while the deck's tracking settles.
-THUMBNAIL_OFFSET_SECONDS = 3.0
+# A few seconds in wasn't far enough -- VHS capture-card rips routinely
+# have a black or garbage stretch well past 0:00 while the deck's tracking
+# settles, sometimes several seconds long. One minute in clears that
+# reliably, but shouldn't eat a big chunk of a short clip, so fall back to
+# 10% in for anything where a minute would be a large fraction of the
+# runtime (e.g. 60s into a 5-minute video is 20% in, further than needed).
+THUMBNAIL_OFFSET_SECONDS = 60.0
+THUMBNAIL_OFFSET_FRACTION = 0.1
 
 
 def _thumbnail_path(video) -> str:
@@ -23,7 +28,8 @@ def ensure_thumbnail(video) -> str:
         return out_path
 
     os.makedirs(settings.PREVIEW_CLIPS_DIR, exist_ok=True)
-    offset = min(THUMBNAIL_OFFSET_SECONDS, (video.duration_seconds or 0) / 2)
+    duration = video.duration_seconds or 0
+    offset = min(THUMBNAIL_OFFSET_SECONDS, duration * THUMBNAIL_OFFSET_FRACTION)
 
     tmp_path = out_path + ".tmp.jpg"
     subprocess.run(
