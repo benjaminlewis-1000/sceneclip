@@ -6,6 +6,20 @@ function getCookie(name) {
   return match ? match[2] : null;
 }
 
+// DRF's IsAuthenticated returns 403 (not 401 -- SessionAuthentication sets
+// no WWW-Authenticate challenge) for a request with no session at all, and
+// this app has no per-object permissions, so a 403 here only ever means
+// "not logged in yet." Rather than every page silently rendering empty
+// lists with no explanation, bounce straight to Authelia -- with
+// SOCIALACCOUNT_LOGIN_ON_GET this skips allauth's intermediate confirm
+// page and goes directly to the SSO redirect.
+const LOGIN_URL = "/accounts/oidc/authelia/login/";
+
+function redirectToLogin() {
+  const next = encodeURIComponent(window.location.pathname + window.location.search);
+  window.location.href = `${LOGIN_URL}?process=login&next=${next}`;
+}
+
 async function request(path, options = {}) {
   const res = await fetch(path, {
     credentials: "same-origin",
@@ -16,6 +30,10 @@ async function request(path, options = {}) {
     },
     ...options,
   });
+  if (res.status === 403) {
+    redirectToLogin();
+    return new Promise(() => {}); // navigating away -- never resolve
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`${res.status} ${res.statusText}: ${text}`);
