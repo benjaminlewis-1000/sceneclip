@@ -76,8 +76,7 @@ export default function ReviewQueue() {
     async (verdict) => {
       if (!boundary) return;
       // Flush whatever's currently typed (a field may not have been
-      // blurred yet) before moving on, then carry the after_* values
-      // forward as the next boundary's before_*.
+      // blurred yet) before moving on.
       await api.updateBoundary(boundary.id, {
         before_description: beforeDescription,
         before_date: beforeDate || null,
@@ -85,7 +84,19 @@ export default function ReviewQueue() {
         after_date: afterDate || null,
       });
       await api.reviewBoundary(boundary.id, verdict);
-      loadNext({ description: afterDescription, date: afterDate });
+
+      // On approve, before/after are genuinely two different scenes, so
+      // only "after" (the new one) carries forward. On reject, there was
+      // no real cut -- before/after describe the same continuous scene --
+      // so if the reviewer didn't bother re-typing "after" (nothing
+      // changed), fall back to "before" rather than carrying forward a
+      // blank and losing the description. Prefer "after" when it *was*
+      // filled in, in case they added something more specific there.
+      const carry =
+        verdict === "rejected"
+          ? { description: afterDescription || beforeDescription, date: afterDate || beforeDate }
+          : { description: afterDescription, date: afterDate };
+      loadNext(carry);
     },
     [boundary, beforeDescription, beforeDate, afterDescription, afterDate, loadNext]
   );
