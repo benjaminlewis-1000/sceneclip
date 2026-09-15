@@ -91,6 +91,15 @@ def run_detection_task(self, run_id: int):
         run.finished_at = timezone.now()
         run.save(update_fields=["status", "error_message", "finished_at"])
 
+        # video.status was flipped to DETECTING when this run was queued
+        # (see VideoViewSet.detect) and, without this, would stay there
+        # forever on failure -- the card would show "Finishing up" with no
+        # way out. Revert to whatever's actually true: REVIEWING if earlier
+        # boundaries already exist (this failed run just didn't add
+        # anything new), otherwise back to PENDING.
+        video.status = Video.Status.REVIEWING if video.boundaries.exists() else Video.Status.PENDING
+        video.save(update_fields=["status"])
+
         Notification.objects.create(
             video=video,
             kind=Notification.Kind.DETECTION_FAILED,

@@ -1,6 +1,8 @@
 # API-level smoke tests: auth is enforced by default (the whole point of
 # DEFAULT_PERMISSION_CLASSES=[IsAuthenticated] in settings.py), and the
 # review/adjust endpoints behave as documented.
+from unittest import mock
+
 import pytest
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
@@ -123,13 +125,19 @@ def test_detect_marks_video_detecting_immediately_at_queue_time():
     # Celery worker slot actually starts it -- otherwise, with worker
     # concurrency capped, a video queued behind others in the backlog looks
     # untouched ("pending", Reprocess still enabled) even though a run
-    # genuinely exists for it.
+    # genuinely exists for it. Patches out the task itself: under
+    # CELERY_TASK_ALWAYS_EAGER it would otherwise run synchronously inline
+    # (and immediately fail against a nonexistent path, reverting the
+    # status again via run_detection_task's own failure handling) -- this
+    # test is only about the view's own synchronous status-setting, not
+    # what the task does afterward.
     user = get_user_model().objects.create_user(username="benjamin7", password="x")
     client = APIClient()
     client.force_authenticate(user=user)
 
     video = Video.objects.create(path="/videos/tape7.mp4")
-    response = client.post(f"/api/videos/{video.id}/detect/", {}, format="json")
+    with mock.patch("videos.views.run_detection_task.delay"):
+        response = client.post(f"/api/videos/{video.id}/detect/", {}, format="json")
     assert response.status_code == 202
 
     video.refresh_from_db()
