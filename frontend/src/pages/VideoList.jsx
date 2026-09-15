@@ -71,6 +71,16 @@ export default function VideoList() {
     refresh();
   };
 
+  // Kicks off detection for every video that hasn't been run yet -- videos
+  // already mid-detection, under review, or exported are left alone so
+  // this can't clobber in-progress work.
+  const processAll = async () => {
+    const targets = videos.filter((v) => v.status === "pending");
+    await Promise.all(targets.map((v) => api.detectVideo(v.id, v.detection_params_override || undefined)));
+    refresh();
+  };
+  const pendingCount = videos.filter((v) => v.status === "pending").length;
+
   return (
     <div>
       <h1>Videos</h1>
@@ -80,6 +90,9 @@ export default function VideoList() {
         </button>
         <button onClick={() => setBrowserOpen((v) => !v)}>
           {browserOpen ? "Close browser" : "Add from a different path..."}
+        </button>
+        <button onClick={processAll} disabled={pendingCount === 0}>
+          Process all ({pendingCount} pending)
         </button>
       </div>
 
@@ -129,6 +142,7 @@ function VideoCard({ video, onReprocess, onExport, onToggleDone }) {
           <Link to={`/videos/${video.id}`}>{video.path}</Link>
           <span className="video-status">
             {video.marked_done ? "Done" : video.status}
+            {video.duration_seconds != null && ` · ${formatDuration(video.duration_seconds)}`}
           </span>
         </div>
       </div>
@@ -145,10 +159,23 @@ function VideoCard({ video, onReprocess, onExport, onToggleDone }) {
         <Link to={`/videos/${video.id}`}>
           <button>Adjust params</button>
         </Link>
-        <Link to={`/review?video=${video.id}`}>
-          <button>Review this video</button>
-        </Link>
-        <button onClick={onExport} disabled={exporting}>
+        {/* A disabled <button> inside a <Link> would still navigate on
+        click (the surrounding <a> catches it), so render a plain disabled
+        button instead of a Link at all when there's nothing to do yet. */}
+        {video.has_boundaries ? (
+          <Link to={`/review?video=${video.id}`}>
+            <button>Review this video</button>
+          </Link>
+        ) : (
+          <button disabled title="No candidate scene boundaries detected yet -- run detection first">
+            Review this video
+          </button>
+        )}
+        <button
+          onClick={onExport}
+          disabled={exporting || !video.has_approved_boundaries}
+          title={!video.has_approved_boundaries ? "No approved boundaries yet -- review at least one first" : undefined}
+        >
           Export clips
         </button>
         <button onClick={onToggleDone}>
@@ -157,6 +184,16 @@ function VideoCard({ video, onReprocess, onExport, onToggleDone }) {
       </div>
     </div>
   );
+}
+
+function formatDuration(seconds) {
+  const total = Math.round(seconds);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = String(m).padStart(h > 0 ? 2 : 1, "0");
+  const ss = String(s).padStart(2, "0");
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
 function ProgressBar({ label, percent }) {

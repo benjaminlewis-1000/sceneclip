@@ -36,6 +36,14 @@ body {
   margin-right: 1rem;
 }
 
+.logout-link {
+  margin-left: auto;
+}
+
+.back-button {
+  margin-bottom: 1rem;
+}
+
 .app-main {
   padding: 1.5rem;
   max-width: 960px;

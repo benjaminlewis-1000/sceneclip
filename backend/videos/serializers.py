@@ -17,12 +17,18 @@ class VideoSerializer(serializers.ModelSerializer):
     # lets the library list show a progress bar without a second request
     # per video.
     detection_progress_percent = serializers.SerializerMethodField()
+    # Drive the frontend's button disabling: "Review this video" needs
+    # something to review, "Export clips" needs at least one approved cut
+    # to actually produce a chapter.
+    has_boundaries = serializers.SerializerMethodField()
+    has_approved_boundaries = serializers.SerializerMethodField()
 
     class Meta:
         model = Video
         fields = [
             "id", "path", "duration_seconds", "status", "marked_done",
             "export_progress_percent", "detection_progress_percent",
+            "has_boundaries", "has_approved_boundaries",
             "detection_params_override", "created_at", "updated_at",
         ]
         read_only_fields = [
@@ -35,6 +41,12 @@ class VideoSerializer(serializers.ModelSerializer):
             return None
         latest_run = obj.runs.order_by("-created_at").first()
         return latest_run.progress_percent if latest_run else None
+
+    def get_has_boundaries(self, obj):
+        return obj.boundaries.exists()
+
+    def get_has_approved_boundaries(self, obj):
+        return obj.boundaries.filter(review_status=SceneBoundary.ReviewStatus.APPROVED).exists()
 
 
 class DetectionRunSerializer(serializers.ModelSerializer):

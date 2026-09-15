@@ -2,8 +2,12 @@
 # OIDC flow), and the DRF API under /api/. The built React SPA is served by
 # the nginx frontend container in production, not by Django -- see
 # frontend/nginx.conf.
+import os
+
 from django.contrib import admin
+from django.contrib.auth import logout as auth_logout
 from django.http import JsonResponse
+from django.shortcuts import redirect
 from django.urls import include, path
 from django.views.decorators.csrf import ensure_csrf_cookie
 
@@ -20,9 +24,21 @@ def csrf_bootstrap(request):
     return JsonResponse({"detail": "csrf cookie set"})
 
 
+def logout_view(request):
+    # Clears this app's own Django session, then also hits Authelia's
+    # logout endpoint (?rd= bounces back here once done) so the SSO session
+    # itself ends, not just this app's local one -- by request, this
+    # deliberately also logs the user out of every other app sharing this
+    # Authelia instance.
+    auth_logout(request)
+    app_domain = os.environ.get("APP_DOMAIN", "localhost")
+    return redirect(f"https://auth.exploretheworld.tech/logout?rd=https://{app_domain}/")
+
+
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("accounts/", include("allauth.urls")),
     path("api/csrf/", csrf_bootstrap, name="csrf-bootstrap"),
+    path("api/logout/", logout_view, name="logout"),
     path("api/", include("videos.urls")),
 ]

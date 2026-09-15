@@ -4,6 +4,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api/client.js";
+import BackButton from "../components/BackButton.jsx";
 
 export default function VideoDetail() {
   const { videoId } = useParams();
@@ -40,8 +41,15 @@ export default function VideoDetail() {
 
   if (!video) return <p>Loading...</p>;
 
+  // Even with zero approved boundaries, rebuild_scenes() still produces one
+  // "whole video" Scene row once duration is known -- so gate on
+  // has_approved_boundaries (a real human verdict), not just "some
+  // not-yet-exported scene exists."
+  const exportDisabled = !video.has_approved_boundaries || !scenes.some((s) => !s.exported);
+
   return (
     <div>
+      <BackButton />
       <h1>{video.path}</h1>
       <p>Status: {video.status}</p>
 
@@ -131,7 +139,13 @@ export default function VideoDetail() {
         </tbody>
       </table>
 
-      <button onClick={exportVideo}>Export approved scenes</button>
+      <button
+        onClick={exportVideo}
+        disabled={exportDisabled}
+        title={exportDisabled ? "No approved boundaries yet -- review at least one first" : undefined}
+      >
+        Export approved scenes
+      </button>
     </div>
   );
 }

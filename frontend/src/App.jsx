@@ -46,6 +46,11 @@ export default function App() {
         <NavLink to="/notifications">
           Notifications{unreadCount > 0 ? ` (${unreadCount})` : ""}
         </NavLink>
+        {/* Full Authelia SSO logout, not just this app's session -- see
+        config/urls.py:logout_view. Plain <a>, not a fetch call, since the
+        browser needs to actually follow the redirect chain out to Authelia
+        and back. */}
+        <a className="logout-link" href="/api/logout/">Log out</a>
       </nav>
       <main className="app-main">
         <Routes>

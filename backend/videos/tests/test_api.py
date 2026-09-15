@@ -92,3 +92,27 @@ def test_boundary_queue_returns_oldest_pending_across_library():
     response = client.get("/api/boundaries/queue/")
     assert response.status_code == 200
     assert response.data["id"] == first.id
+
+
+def test_video_serializer_flags_boundary_and_approval_state():
+    # Drives the frontend's disabling of "Review this video" (needs
+    # has_boundaries) and "Export clips" (needs has_approved_boundaries).
+    user = get_user_model().objects.create_user(username="benjamin6", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape6.mp4")
+    response = client.get(f"/api/videos/{video.id}/")
+    assert response.data["has_boundaries"] is False
+    assert response.data["has_approved_boundaries"] is False
+
+    run = DetectionRun.objects.create(video=video, params={})
+    boundary = SceneBoundary.objects.create(video=video, run=run, timestamp_seconds=10.0)
+    response = client.get(f"/api/videos/{video.id}/")
+    assert response.data["has_boundaries"] is True
+    assert response.data["has_approved_boundaries"] is False
+
+    boundary.review_status = SceneBoundary.ReviewStatus.APPROVED
+    boundary.save(update_fields=["review_status"])
+    response = client.get(f"/api/videos/{video.id}/")
+    assert response.data["has_approved_boundaries"] is True

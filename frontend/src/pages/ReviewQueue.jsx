@@ -2,8 +2,9 @@
 // and auto-advances to the next pending one after a hotkey decision. This
 // is the "queue" mode from the plan; TileGrid.jsx is the grid-view backup.
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client.js";
+import BackButton from "../components/BackButton.jsx";
 
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 
@@ -105,19 +106,32 @@ export default function ReviewQueue() {
   }, [decide, replay]);
 
   if (boundary === undefined) {
-    return <p>Loading next boundary...</p>;
+    return (
+      <div>
+        <BackButton />
+        <p>Loading next boundary...</p>
+      </div>
+    );
   }
 
   if (boundary === null) {
     return (
-      <h1>
-        {scopedVideoId ? "Nothing pending for this video." : "Review queue is empty. Nothing pending."}
-      </h1>
+      <div>
+        <BackButton />
+        <h1>Nothing to review</h1>
+        <p>
+          {scopedVideoId
+            ? "This video hasn't been processed yet, or every candidate boundary has already been reviewed."
+            : "Nothing's been detected yet, or everything detected so far has already been reviewed."}{" "}
+          Run detection on a video from the <Link to="/">Videos page</Link> to get candidates here.
+        </p>
+      </div>
     );
   }
 
   return (
     <div className="review-queue">
+      <BackButton />
       <h1>{scopedVideoId ? "Review Queue (this video)" : "Review Queue"}</h1>
       <p className="boundary-meta">
         {boundary.video_path} @ {formatTime(boundary.timestamp_seconds)}
