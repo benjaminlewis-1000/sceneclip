@@ -94,7 +94,12 @@ export default function VideoList() {
 
   const sortedVideos = [...videos].sort((a, b) => {
     if (a.marked_done !== b.marked_done) return a.marked_done ? 1 : -1;
-    return (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99);
+    const statusDiff = (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99);
+    if (statusDiff !== 0) return statusDiff;
+    // Within "detecting", a run actually being worked on is more worth
+    // seeing than one just sitting behind a worker-concurrency backlog.
+    const runRank = (v) => (v.detection_run_status === "running" ? 0 : 1);
+    return runRank(a) - runRank(b);
   });
   const visibleVideos = sortedVideos.filter((v) => {
     if (filter === "all") return true;
