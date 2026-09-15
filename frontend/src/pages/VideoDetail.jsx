@@ -14,6 +14,7 @@ export default function VideoDetail() {
   const [scenes, setScenes] = useState([]);
   const [params, setParams] = useState({ detector: "adaptive", threshold: 3.0, min_scene_len_seconds: 2.0 });
   const [speed, setSpeed] = useState(1);
+  const [playRange, setPlayRange] = useState(null); // {end} while "Watch this scene" is active
   const videoRef = useRef(null);
 
   const refresh = async () => {
@@ -31,6 +32,29 @@ export default function VideoDetail() {
   useEffect(() => {
     if (videoRef.current) videoRef.current.playbackRate = speed;
   }, [speed, videoId]);
+
+  // Auto-pauses once playback reaches the end of the scene that "Watch
+  // this scene" started -- there's no native way to bound <video> playback
+  // to a range once it's already loaded (media-fragment #t=start,end only
+  // takes effect on initial load), so this is a manual stand-in.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !playRange) return undefined;
+    const onTimeUpdate = () => {
+      if (v.currentTime >= playRange.end) v.pause();
+    };
+    v.addEventListener("timeupdate", onTimeUpdate);
+    return () => v.removeEventListener("timeupdate", onTimeUpdate);
+  }, [playRange]);
+
+  const watchScene = (scene) => {
+    const v = videoRef.current;
+    if (!v) return;
+    setPlayRange({ end: scene.end_seconds });
+    v.currentTime = scene.start_seconds;
+    v.play();
+    v.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
 
   const runDetection = async (saveAsOverride) => {
     await api.detectVideo(videoId, params, saveAsOverride);
@@ -122,6 +146,7 @@ export default function VideoDetail() {
             <th>Description</th>
             <th>Date</th>
             <th>Exported</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -143,11 +168,14 @@ export default function VideoDetail() {
                 />
               </td>
               <td>{s.exported ? "yes" : "no"}</td>
+              <td>
+                <button onClick={() => watchScene(s)}>Watch</button>
+              </td>
             </tr>
           ))}
           {scenes.length === 0 && (
             <tr>
-              <td colSpan="5">
+              <td colSpan="6">
                 No scenes yet -- once boundaries are reviewed, approved segments show up here.
               </td>
             </tr>
