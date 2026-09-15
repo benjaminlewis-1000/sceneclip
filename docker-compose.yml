@@ -4,9 +4,8 @@
 #
 # All containers join the external `traefik_proxy` docker network purely so
 # Cloudflare Tunnel (running elsewhere, see docker_via_tunnels/cloudflared)
-# can resolve the `frontend_sceneclip` container by name -- no Traefik/
-# nginx-proxy auth layer is used here; Django's own Authelia-OIDC login is
-# the sole gate.
+# can resolve the `frontend` container by name -- no Traefik/nginx-proxy
+# auth layer is used here; Django's own Authelia-OIDC login is the sole gate.
 services:
   web:
     build:
@@ -29,7 +28,7 @@ services:
       - redis
     ports:
       # Direct host access for debugging; the public hostname points at
-      # `frontend_sceneclip`, not this port.
+      # `frontend`, not this port.
       - "44490:8000"
     networks:
       - traefik_proxy
@@ -73,7 +72,7 @@ services:
     networks:
       - traefik_proxy
 
-  frontend_sceneclip:
+  frontend:
     build:
       context: ./frontend
     container_name: sceneclip_frontend
