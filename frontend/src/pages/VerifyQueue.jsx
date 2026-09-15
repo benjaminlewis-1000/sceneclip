@@ -75,7 +75,7 @@ export default function VerifyQueue() {
         src={api.sceneClipUrl(scene.id)}
         autoPlay
         controls
-        style={{ maxWidth: "720px", width: "100%" }}
+        style={{ maxWidth: "720px", width: "100%", display: "block", margin: "0 auto" }}
       />
       <div className="speed-controls">
         {SPEEDS.map((s) => (

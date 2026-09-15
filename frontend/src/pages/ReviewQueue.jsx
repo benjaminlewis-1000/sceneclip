@@ -255,7 +255,7 @@ export default function ReviewQueue() {
         src={`/api/boundaries/${peekBoundary.id}/clip/${isPeeking ? "" : `?v=${clipVersion}`}`}
         autoPlay
         controls
-        style={{ maxWidth: "720px", width: "100%" }}
+        style={{ maxWidth: "720px", width: "100%", display: "block", margin: "0 auto" }}
       />
       <div className="speed-controls">
         {SPEEDS.map((s) => (

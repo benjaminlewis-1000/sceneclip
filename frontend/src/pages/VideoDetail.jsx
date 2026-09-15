@@ -126,7 +126,7 @@ export default function VideoDetail() {
         src={playerSrc}
         controls
         autoPlay={watchingSceneId != null}
-        style={{ maxWidth: "720px", width: "100%" }}
+        style={{ maxWidth: "720px", width: "100%", display: "block", margin: "0 auto" }}
       />
       {watchingSceneId != null && (
         <p className="boundary-log-hint">
