@@ -120,7 +120,10 @@ REST_FRAMEWORK = {
 # ---------------------------------------------------------------------------
 # Celery
 # ---------------------------------------------------------------------------
-CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://redis:6379/0")
+# Default uses the container_name (sceneclip_redis), not the bare compose
+# service name -- see the comment in .env.example on the collision this
+# caused with other projects' "redis" containers on the shared network.
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "redis://sceneclip_redis:6379/0")
 CELERY_RESULT_BACKEND = CELERY_BROKER_URL
 CELERY_TASK_TRACK_STARTED = True
 CELERY_ACCEPT_CONTENT = ["json"]
