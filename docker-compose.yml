@@ -37,7 +37,10 @@ services:
     build:
       context: ./backend
     container_name: sceneclip_worker
-    command: celery -A config worker -l INFO -c 2
+    # -B: embedded beat scheduler for the periodic orphaned-work sweep
+    # (videos/tasks.py:sweep_orphaned_work_task) -- fine to embed in the
+    # same process since there's only ever one worker container here.
+    command: celery -A config worker -l INFO -c 2 -B
     env_file: .env
     environment:
       - TZ=America/New_York

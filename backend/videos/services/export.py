@@ -64,7 +64,8 @@ def _scene_output_filename(scene) -> str:
     # doesn't move any scene's start_seconds around.
     ordered_ids = list(scene.video.scenes.order_by("start_seconds").values_list("id", flat=True))
     idx = ordered_ids.index(scene.id) + 1
-    return f"scene_{idx:03d}.mp4"
+    date_prefix = scene.scene_date.isoformat() if scene.scene_date else "undated"
+    return f"{date_prefix}_scene_{idx:03d}.mp4"
 
 
 def export_one_scene(scene, on_progress: Optional[Callable[[float], None]] = None) -> str:
@@ -78,9 +79,28 @@ def export_one_scene(scene, on_progress: Optional[Callable[[float], None]] = Non
 
     metadata_args = []
     if scene.description:
+        # Both tags: `title` is what most players/OS file browsers show as
+        # the displayed name (works best short), while `comment` is where
+        # tools that support a longer free-text description (Finder,
+        # Windows Explorer, Plex/Jellyfin) actually look for one. Writing
+        # both means the same description shows up either way, regardless
+        # of which convention the tool viewing it later expects.
         metadata_args += ["-metadata", f"title={scene.description}"]
+        metadata_args += ["-metadata", f"comment={scene.description}"]
     if scene.scene_date:
         metadata_args += ["-metadata", f"date={scene.scene_date.isoformat()}"]
+    # Traceability back to the source tape and where in it this came from.
+    # ffmpeg's mov/mp4 muxer silently drops any metadata key it doesn't
+    # recognize as standard (verified empirically -- a custom "source_file"
+    # key never made it into the output at all), so this can't be its own
+    # field the way it could in a format like Matroska. `description` is
+    # one of the handful MP4 actually preserves and isn't used for anything
+    # else here (title/comment already carry the scene's own description).
+    metadata_args += [
+        "-metadata",
+        f"description=Source: {os.path.basename(video.path)} "
+        f"[{scene.start_seconds:.3f}s - {scene.end_seconds:.3f}s]",
+    ]
 
     tmp_path = out_path + ".tmp.mp4"
     cmd = [

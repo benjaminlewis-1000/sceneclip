@@ -3,6 +3,7 @@
 # about, rather than waiting on the request; plus a lightweight background
 # metadata backfill so newly-discovered videos don't block the request that
 # lists them.
+import datetime
 import subprocess
 
 from celery import shared_task
@@ -14,6 +15,102 @@ from .services.matching import carry_forward_reviews
 from .services.probe import probe_duration_seconds
 from .services.scenes import rebuild_scenes, scenes_ready_to_encode
 from .services.thumbnail import ensure_thumbnail
+
+
+# How long a run/encode can sit with no completion before the periodic
+# sweep (not the startup one, which is unconditional) treats it as
+# abandoned rather than just slow. Generous on purpose -- a long VHS tape
+# still has to be decoded frame-by-frame, and a false-positive here means
+# interrupting something that was actually about to finish.
+STALE_DETECTION_RUN_AGE = datetime.timedelta(hours=3)
+STALE_SCENE_ENCODE_AGE = datetime.timedelta(hours=1)
+
+
+def sweep_orphaned_work(only_unconditional: bool = False) -> dict:
+    """Recovers DetectionRuns/Scenes left claiming "running"/"mid-encode"
+    by a worker process that's gone -- either because this worker just
+    started (worker_ready signal, see config/celery.py: with a single
+    worker container, anything still marked running at that instant is
+    unconditionally orphaned, since the process that was running it can't
+    still exist) or, periodically, because a task has been running
+    implausibly long for a worker that's still alive (hung ffmpeg/
+    PySceneDetect subprocess, OOM-killed child, etc.).
+
+    `only_unconditional=True` (used at startup) skips the age check and
+    sweeps every in-progress row regardless of how recently it started --
+    right after a restart, "recently started" is exactly the orphaned
+    case, not a sign it's still legitimately running.
+    """
+    now = timezone.now()
+    swept = {"runs": 0, "scenes": 0}
+
+    runs = DetectionRun.objects.filter(status=DetectionRun.Status.RUNNING).select_related("video")
+    if not only_unconditional:
+        runs = runs.filter(created_at__lt=now - STALE_DETECTION_RUN_AGE)
+    for run in runs:
+        run.status = DetectionRun.Status.FAILED
+        run.error_message = "Orphaned: no worker was actually processing this run anymore."
+        run.finished_at = now
+        run.save(update_fields=["status", "error_message", "finished_at"])
+
+        video = run.video
+        had_boundaries = video.boundaries.exists()
+
+        if had_boundaries:
+            # Already has usable content from an earlier successful run --
+            # this orphaned attempt was just a redundant re-process, not
+            # essential missing work. Leave it actionable, don't auto-retry.
+            video.status = Video.Status.REVIEWING
+            video.save(update_fields=["status"])
+            Notification.objects.create(
+                video=video,
+                kind=Notification.Kind.DETECTION_FAILED,
+                message=f"Scene detection for {video.path} was interrupted (worker restarted or hung).",
+            )
+        else:
+            # Nothing survived -- this video still genuinely needs
+            # processing, so re-queue it with the same params immediately
+            # rather than leaving it sitting at "pending" for someone to
+            # notice and re-click Reprocess (or wait for the next manual
+            # "Process all").
+            new_run = DetectionRun.objects.create(video=video, params=run.params)
+            video.status = Video.Status.DETECTING
+            video.save(update_fields=["status"])
+            run_detection_task.delay(new_run.id)
+            Notification.objects.create(
+                video=video,
+                kind=Notification.Kind.DETECTION_FAILED,
+                message=f"Scene detection for {video.path} was interrupted (worker restarted or hung) -- automatically retrying.",
+            )
+        swept["runs"] += 1
+
+    scenes = Scene.objects.filter(export_progress_percent__isnull=False).select_related("video")
+    if not only_unconditional:
+        scenes = scenes.filter(updated_at__lt=now - STALE_SCENE_ENCODE_AGE)
+    for scene in scenes:
+        scene.export_progress_percent = None
+        scene.save(update_fields=["export_progress_percent"])
+
+        Notification.objects.create(
+            video=scene.video,
+            kind=Notification.Kind.EXPORT_FAILED,
+            message=f"Encoding a scene in {scene.video.path} was interrupted (worker restarted or hung) -- will retry automatically.",
+        )
+        # Safe to just re-queue immediately: still closed+dated+not
+        # exported, so it's still eligible.
+        trigger_auto_encode(scene.video)
+        swept["scenes"] += 1
+
+    return swept
+
+
+@shared_task
+def sweep_orphaned_work_task() -> dict:
+    """Periodic (Celery beat, see config/celery.py) safety net -- catches a
+    hung task on a worker that's still alive, as opposed to the
+    unconditional startup sweep (also in config/celery.py, via the
+    worker_ready signal) which handles the worker-got-restarted case."""
+    return sweep_orphaned_work(only_unconditional=False)
 
 
 def trigger_auto_encode(video) -> None:

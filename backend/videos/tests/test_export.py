@@ -1,6 +1,8 @@
 # Covers export_one_scene: the shared per-scene encode primitive used both
-# by the bulk "Export approved scenes" button and the automatic per-scene
-# encode triggered when a scene closes.
+# by export_scenes() (a bulk catch-all, no longer surfaced as its own UI
+# button) and the automatic per-scene encode triggered when a scene closes.
+import json
+import os
 import subprocess
 
 import pytest
@@ -43,13 +45,30 @@ def test_export_one_scene_encodes_and_marks_exported(tmp_path):
     assert scene.exported is True
     assert scene.exported_path == out_path
     assert scene.export_progress_percent is None
+    # Dated filename, not just a bare ordinal -- easier to identify on disk
+    # without opening the file.
+    assert os.path.basename(out_path) == "1994-06-01_scene_001.mp4"
 
     probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format_tags=title,date", "-of", "json", out_path],
+        [
+            "ffprobe", "-v", "error", "-of", "json", "-show_entries",
+            "format_tags=title,comment,date,description",
+            out_path,
+        ],
         capture_output=True, text=True, check=True,
     )
-    assert "Birthday cake" in probe.stdout
-    assert "1994-06-01" in probe.stdout
+    tags = json.loads(probe.stdout)["format"]["tags"]
+    # title and comment both carry the description -- different tools read
+    # different tags for a scene's descriptive text (see export.py).
+    assert tags["title"] == "Birthday cake"
+    assert tags["comment"] == "Birthday cake"
+    assert tags["date"] == "1994-06-01"
+    # Traceability back to the source tape and where in it this came from --
+    # folded into `description` since ffmpeg's mov/mp4 muxer silently drops
+    # any metadata key it doesn't recognize as standard.
+    assert "source.mp4" in tags["description"]
+    assert "0.000s" in tags["description"]
+    assert "2.000s" in tags["description"]
 
 
 def test_export_scenes_skips_already_exported(tmp_path):
