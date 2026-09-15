@@ -31,16 +31,23 @@ export const api = {
   getVideo: (id) => request(`/api/videos/${id}/`),
   createVideo: (path) =>
     request("/api/videos/", { method: "POST", body: JSON.stringify({ path }) }),
+  syncVideos: () => request("/api/videos/sync/", { method: "POST" }),
+  browseVideos: (path = "") =>
+    request(`/api/videos/browse/?path=${encodeURIComponent(path)}`),
+  setVideoDone: (id, done) =>
+    request(`/api/videos/${id}/`, { method: "PATCH", body: JSON.stringify({ marked_done: done }) }),
   detectVideo: (id, params, saveAsOverride) =>
     request(`/api/videos/${id}/detect/`, {
       method: "POST",
       body: JSON.stringify({ params, save_as_override: saveAsOverride }),
     }),
   exportVideo: (id) => request(`/api/videos/${id}/export/`, { method: "POST" }),
+  videoThumbnailUrl: (id) => `/api/videos/${id}/thumbnail/`,
 
   listBoundaries: (params = {}) =>
     request(`/api/boundaries/?${new URLSearchParams(params)}`),
-  nextQueueBoundary: () => request("/api/boundaries/queue/"),
+  nextQueueBoundary: (videoId) =>
+    request(`/api/boundaries/queue/${videoId ? `?video=${videoId}` : ""}`),
   reviewBoundary: (id, verdict) =>
     request(`/api/boundaries/${id}/review/`, {
       method: "POST",

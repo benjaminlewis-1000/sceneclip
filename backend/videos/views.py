@@ -15,9 +15,12 @@ from .serializers import (
     SceneSerializer,
     VideoSerializer,
 )
+from .services.browse import InvalidBrowsePath, list_directory
 from .services.clips import ensure_preview_clip
+from .services.library import sync_library
 from .services.range_response import serve_file_with_range
 from .services.scenes import rebuild_scenes
+from .services.thumbnail import ensure_thumbnail
 from .tasks import export_video_task, run_detection_task
 
 
@@ -57,6 +60,31 @@ class VideoViewSet(viewsets.ModelViewSet):
 
     queryset = Video.objects.all()
     serializer_class = VideoSerializer
+
+    @action(detail=False, methods=["post"])
+    def sync(self, request):
+        # Walks VIDEO_ROOT for video files not already known and adds them --
+        # this is what makes the library page "just show up populated"
+        # rather than requiring every file to be added by hand.
+        created = sync_library()
+        return Response(VideoSerializer(created, many=True).data, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=["get"])
+    def browse(self, request):
+        # Backs the "pick a different file" UI. Scoped to VIDEO_ROOT --
+        # the container has no visibility into the rest of the host
+        # filesystem, so browsing outside it isn't possible without adding
+        # another bind mount to docker-compose.yml first.
+        try:
+            return Response(list_directory(request.query_params.get("path", "")))
+        except InvalidBrowsePath as exc:
+            return Response({"error": str(exc)}, status=400)
+
+    @action(detail=True, methods=["get"])
+    def thumbnail(self, request, pk=None):
+        video = self.get_object()
+        path = ensure_thumbnail(video)
+        return serve_file_with_range(request, path, content_type="image/jpeg")
 
     @action(detail=True, methods=["post"])
     def detect(self, request, pk=None):

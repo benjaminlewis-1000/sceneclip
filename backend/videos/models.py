@@ -22,6 +22,13 @@ class Video(models.Model):
     # Per-video override of detection knobs; falls back to the singleton
     # DetectionParams row when null.
     detection_params_override = models.JSONField(null=True, blank=True)
+    # A human "I'm done with this one" flag -- purely a visual/organizational
+    # marker on the library page, independent of and reversible regardless of
+    # `status` (re-processing or re-exporting a marked-done video is fine).
+    marked_done = models.BooleanField(default=False)
+    # 0-100, set by export_video_task as it works through each scene's
+    # ffmpeg cut; null when no export is in flight.
+    export_progress_percent = models.IntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -56,6 +63,9 @@ class DetectionRun(models.Model):
     video = models.ForeignKey(Video, related_name="runs", on_delete=models.CASCADE)
     params = models.JSONField()
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.QUEUED)
+    # 0-100, updated from PySceneDetect's per-frame callback as it works
+    # through the video (see services/detection.py).
+    progress_percent = models.IntegerField(default=0)
     error_message = models.TextField(blank=True, default="")
     created_at = models.DateTimeField(auto_now_add=True)
     finished_at = models.DateTimeField(null=True, blank=True)

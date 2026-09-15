@@ -1,56 +1,205 @@
-// Library landing page: add a video by its container-side path and jump
-// into its detail page.
-import React, { useEffect, useState } from "react";
+// Library landing page. Auto-syncs and lists every video under VIDEO_ROOT
+// on load, plus a directory browser for adding a file from elsewhere under
+// that same mount (the container can't see outside it). Each video is a
+// card: thumbnail + path on one line, its actions on the next -- reprocess,
+// jump to per-video params, review just this video, toggle "done", export.
+import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client.js";
 
+// Videos in these states have a job running -- poll a bit faster while any
+// of them are visible so the progress bar actually moves on screen.
+const IN_PROGRESS_STATUSES = new Set(["detecting"]);
+const POLL_MS = 3000;
+
 export default function VideoList() {
   const [videos, setVideos] = useState([]);
-  const [newPath, setNewPath] = useState("");
+  const [syncing, setSyncing] = useState(true);
+  const [browserOpen, setBrowserOpen] = useState(false);
 
-  const refresh = () => api.listVideos().then(setVideos);
+  const refresh = useCallback(() => api.listVideos().then(setVideos), []);
 
   useEffect(() => {
-    refresh();
-  }, []);
+    // First load: sync the default directory into the DB, then show it --
+    // this is what makes the page "just show up populated."
+    api
+      .syncVideos()
+      .catch(() => null)
+      .finally(() => refresh().finally(() => setSyncing(false)));
+  }, [refresh]);
 
-  const addVideo = async (e) => {
-    e.preventDefault();
-    if (!newPath.trim()) return;
-    await api.createVideo(newPath.trim());
-    setNewPath("");
+  useEffect(() => {
+    const hasActiveJob = videos.some(
+      (v) => IN_PROGRESS_STATUSES.has(v.status) || v.export_progress_percent != null
+    );
+    if (!hasActiveJob) return undefined;
+    const interval = setInterval(refresh, POLL_MS);
+    return () => clearInterval(interval);
+  }, [videos, refresh]);
+
+  const rescan = async () => {
+    setSyncing(true);
+    await api.syncVideos();
+    await refresh();
+    setSyncing(false);
+  };
+
+  const reprocess = async (video) => {
+    await api.detectVideo(video.id, video.detection_params_override || undefined);
+    refresh();
+  };
+
+  const exportClips = async (video) => {
+    await api.exportVideo(video.id);
+    refresh();
+  };
+
+  const toggleDone = async (video) => {
+    await api.setVideoDone(video.id, !video.marked_done);
+    refresh();
+  };
+
+  const addVideo = async (path) => {
+    await api.createVideo(path);
+    setBrowserOpen(false);
     refresh();
   };
 
   return (
     <div>
       <h1>Videos</h1>
-      <form onSubmit={addVideo} className="add-video-form">
-        <input
-          value={newPath}
-          onChange={(e) => setNewPath(e.target.value)}
-          placeholder="/videos/some_tape.mp4"
+      <div className="library-toolbar">
+        <button onClick={rescan} disabled={syncing}>
+          {syncing ? "Scanning..." : "Rescan default directory"}
+        </button>
+        <button onClick={() => setBrowserOpen((v) => !v)}>
+          {browserOpen ? "Close browser" : "Add from a different path..."}
+        </button>
+      </div>
+
+      {browserOpen && <DirectoryBrowser onPick={addVideo} onClose={() => setBrowserOpen(false)} />}
+
+      <div className="video-cards">
+        {videos.map((v) => (
+          <VideoCard
+            key={v.id}
+            video={v}
+            onReprocess={() => reprocess(v)}
+            onExport={() => exportClips(v)}
+            onToggleDone={() => toggleDone(v)}
+          />
+        ))}
+        {videos.length === 0 && !syncing && (
+          <p>No videos found under the default directory. Use "Add from a different path" to add one.</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function VideoCard({ video, onReprocess, onExport, onToggleDone }) {
+  const inProgress = IN_PROGRESS_STATUSES.has(video.status);
+  const exporting = video.export_progress_percent != null;
+
+  return (
+    <div className={`video-card${video.marked_done ? " done" : ""}`}>
+      <div className="video-card-row">
+        <img
+          className="video-thumb"
+          src={api.videoThumbnailUrl(video.id)}
+          alt=""
+          loading="lazy"
         />
-        <button type="submit">Add</button>
-      </form>
-      <table className="video-table">
-        <thead>
-          <tr>
-            <th>Path</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          {videos.map((v) => (
-            <tr key={v.id}>
-              <td>
-                <Link to={`/videos/${v.id}`}>{v.path}</Link>
-              </td>
-              <td>{v.status}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+        <div className="video-card-info">
+          <Link to={`/videos/${video.id}`}>{video.path}</Link>
+          <span className="video-status">
+            {video.marked_done ? "Done" : video.status}
+          </span>
+        </div>
+      </div>
+
+      {inProgress && (
+        <ProgressBar label="Detecting" percent={video.detection_progress_percent} />
+      )}
+      {exporting && <ProgressBar label="Exporting" percent={video.export_progress_percent} />}
+
+      <div className="video-card-actions">
+        <button onClick={onReprocess} disabled={inProgress}>
+          Reprocess
+        </button>
+        <Link to={`/videos/${video.id}`}>
+          <button>Adjust params</button>
+        </Link>
+        <Link to={`/review?video=${video.id}`}>
+          <button>Review this video</button>
+        </Link>
+        <button onClick={onExport} disabled={exporting}>
+          Export clips
+        </button>
+        <button onClick={onToggleDone}>
+          {video.marked_done ? "Mark not done" : "Mark done"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ProgressBar({ label, percent }) {
+  const value = percent ?? 0;
+  return (
+    <div className="progress-row">
+      <span className="progress-label">{label}</span>
+      <div className="progress-track">
+        <div className="progress-fill" style={{ width: `${value}%` }} />
+      </div>
+      <span className="progress-percent">{percent == null ? "..." : `${value}%`}</span>
+    </div>
+  );
+}
+
+// Simple drill-down browser scoped to VIDEO_ROOT -- picking a file fills in
+// the create-video call directly rather than a text input, since the whole
+// point is not having to type a container path by hand.
+function DirectoryBrowser({ onPick, onClose }) {
+  const [listing, setListing] = useState(null);
+
+  const load = useCallback((path) => {
+    api.browseVideos(path).then(setListing);
+  }, []);
+
+  useEffect(() => {
+    load("");
+  }, [load]);
+
+  if (!listing) return <p>Loading directory...</p>;
+
+  return (
+    <div className="directory-browser">
+      <div className="directory-browser-header">
+        <strong>/{listing.path}</strong>
+        <button onClick={onClose}>Close</button>
+      </div>
+      <ul>
+        {listing.parent !== null && (
+          <li>
+            <button onClick={() => load(listing.parent)}>.. (up)</button>
+          </li>
+        )}
+        {listing.entries.map((entry) =>
+          entry.type === "dir" ? (
+            <li key={entry.name}>
+              <button onClick={() => load(`${listing.path}/${entry.name}`.replace(/^\//, ""))}>
+                📁 {entry.name}
+              </button>
+            </li>
+          ) : (
+            <li key={entry.name}>
+              <button onClick={() => onPick(entry.path)}>🎞 {entry.name}</button>
+            </li>
+          )
+        )}
+        {listing.entries.length === 0 && <li>Empty directory.</li>}
+      </ul>
     </div>
   );
 }

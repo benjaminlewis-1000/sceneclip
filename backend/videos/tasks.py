@@ -25,6 +25,9 @@ def run_detection_task(self, run_id: int):
     video.status = Video.Status.DETECTING
     video.save(update_fields=["status"])
 
+    def on_progress(percent: int) -> None:
+        DetectionRun.objects.filter(id=run.id).update(progress_percent=percent)
+
     try:
         # Needed as the end-of-video cut point when deriving Scene rows;
         # only probed once per video.
@@ -32,7 +35,7 @@ def run_detection_task(self, run_id: int):
             video.duration_seconds = probe_duration_seconds(video.path)
             video.save(update_fields=["duration_seconds"])
 
-        timestamps = run_detection(video.path, run.params)
+        timestamps = run_detection(video.path, run.params, progress_callback=on_progress)
         boundaries = SceneBoundary.objects.bulk_create(
             [SceneBoundary(video=video, run=run, timestamp_seconds=ts) for ts in timestamps]
         )
@@ -72,16 +75,25 @@ def export_video_task(self, video_id: int):
     from .services.export import export_scenes
 
     video = Video.objects.get(id=video_id)
+    video.export_progress_percent = 0
+    video.save(update_fields=["export_progress_percent"])
+
+    def on_progress(percent: int) -> None:
+        Video.objects.filter(id=video.id).update(export_progress_percent=percent)
+
     try:
-        exported = export_scenes(video)
+        exported = export_scenes(video, progress_callback=on_progress)
         video.status = Video.Status.EXPORTED
-        video.save(update_fields=["status"])
+        video.export_progress_percent = None
+        video.save(update_fields=["status", "export_progress_percent"])
         Notification.objects.create(
             video=video,
             kind=Notification.Kind.EXPORT_DONE,
             message=f"Exported {len(exported)} scene(s) for {video.path}.",
         )
     except Exception as exc:
+        video.export_progress_percent = None
+        video.save(update_fields=["export_progress_percent"])
         Notification.objects.create(
             video=video,
             kind=Notification.Kind.EXPORT_FAILED,

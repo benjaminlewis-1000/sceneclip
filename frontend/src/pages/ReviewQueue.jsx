@@ -2,6 +2,7 @@
 // and auto-advances to the next pending one after a hotkey decision. This
 // is the "queue" mode from the plan; TileGrid.jsx is the grid-view backup.
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../api/client.js";
 
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
@@ -16,6 +17,11 @@ const PREVIEW_PAD_SECONDS = 5;
 const FRAME_STEP_SECONDS = 1 / 30;
 
 export default function ReviewQueue() {
+  // ?video=<id> scopes the queue to one video (the "Review this video" link
+  // from VideoList); no param reviews across the whole library.
+  const [searchParams] = useSearchParams();
+  const scopedVideoId = searchParams.get("video");
+
   const [boundary, setBoundary] = useState(undefined); // undefined = loading, null = empty queue
   const [speed, setSpeed] = useState(1);
   const [clipVersion, setClipVersion] = useState(0); // cache-bust the <video> src after an adjustment
@@ -24,9 +30,9 @@ export default function ReviewQueue() {
   const loadNext = useCallback(async () => {
     setBoundary(undefined);
     setClipVersion(0);
-    const next = await api.nextQueueBoundary();
+    const next = await api.nextQueueBoundary(scopedVideoId);
     setBoundary(next);
-  }, []);
+  }, [scopedVideoId]);
 
   useEffect(() => {
     loadNext();
@@ -103,12 +109,16 @@ export default function ReviewQueue() {
   }
 
   if (boundary === null) {
-    return <h1>Review queue is empty. Nothing pending.</h1>;
+    return (
+      <h1>
+        {scopedVideoId ? "Nothing pending for this video." : "Review queue is empty. Nothing pending."}
+      </h1>
+    );
   }
 
   return (
     <div className="review-queue">
-      <h1>Review Queue</h1>
+      <h1>{scopedVideoId ? "Review Queue (this video)" : "Review Queue"}</h1>
       <p className="boundary-meta">
         {boundary.video_path} @ {formatTime(boundary.timestamp_seconds)}
       </p>

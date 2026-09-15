@@ -8,7 +8,9 @@ artifacts common in analog VHS captures. A minimum scene length (in frames,
 derived from the source's own frame rate) rejects momentary tracking glitches
 that would otherwise register as a false-positive cut.
 """
-from scenedetect import SceneManager, open_video
+from typing import Callable, Optional
+
+from scenedetect import FrameTimecode, SceneManager, open_video
 from scenedetect.detectors import AdaptiveDetector, ContentDetector
 
 DEFAULT_PARAMS = {
@@ -17,8 +19,17 @@ DEFAULT_PARAMS = {
     "min_scene_len_seconds": 2.0,
 }
 
+# PySceneDetect's own `callback` param only fires when a cut is *found*, not
+# per-frame -- useless for a smooth progress bar on a video with long,
+# static scenes. Instead we drive detect_scenes() in fixed-size time chunks
+# ourselves (it supports this: each call resumes from the video's current
+# position) and report progress after each chunk completes.
+PROGRESS_CHUNK_SECONDS = 15.0
 
-def run_detection(video_path: str, params: dict) -> list[float]:
+
+def run_detection(
+    video_path: str, params: dict, progress_callback: Optional[Callable[[int], None]] = None
+) -> list[float]:
     """Run PySceneDetect over `video_path` and return candidate cut-point
     timestamps (in seconds), excluding the very start and end of the video.
     """
@@ -40,7 +51,21 @@ def run_detection(video_path: str, params: dict) -> list[float]:
 
     scene_manager = SceneManager()
     scene_manager.add_detector(detector)
-    scene_manager.detect_scenes(video=video)
+
+    total_seconds = video.duration.get_seconds() if video.duration else None
+    if total_seconds and progress_callback:
+        processed_seconds = 0.0
+        while processed_seconds < total_seconds:
+            step = min(PROGRESS_CHUNK_SECONDS, total_seconds - processed_seconds)
+            scene_manager.detect_scenes(video=video, duration=FrameTimecode(step, video.frame_rate))
+            processed_seconds += step
+            progress_callback(min(99, int(processed_seconds / total_seconds * 100)))
+    else:
+        scene_manager.detect_scenes(video=video)
+
+    if progress_callback:
+        progress_callback(100)
+
     scene_list = scene_manager.get_scene_list()
 
     # scene_list covers the whole video as consecutive (start, end) pairs;

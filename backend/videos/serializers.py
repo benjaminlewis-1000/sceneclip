@@ -13,20 +13,38 @@ class DetectionParamsSerializer(serializers.ModelSerializer):
 
 
 class VideoSerializer(serializers.ModelSerializer):
+    # Progress of the most recent still-running DetectionRun, if any --
+    # lets the library list show a progress bar without a second request
+    # per video.
+    detection_progress_percent = serializers.SerializerMethodField()
+
     class Meta:
         model = Video
         fields = [
-            "id", "path", "duration_seconds", "status",
+            "id", "path", "duration_seconds", "status", "marked_done",
+            "export_progress_percent", "detection_progress_percent",
             "detection_params_override", "created_at", "updated_at",
         ]
-        read_only_fields = ["duration_seconds", "status", "created_at", "updated_at"]
+        read_only_fields = [
+            "duration_seconds", "status", "export_progress_percent",
+            "created_at", "updated_at",
+        ]
+
+    def get_detection_progress_percent(self, obj):
+        if obj.status != Video.Status.DETECTING:
+            return None
+        latest_run = obj.runs.order_by("-created_at").first()
+        return latest_run.progress_percent if latest_run else None
 
 
 class DetectionRunSerializer(serializers.ModelSerializer):
     class Meta:
         model = DetectionRun
-        fields = ["id", "video", "params", "status", "error_message", "created_at", "finished_at"]
-        read_only_fields = ["status", "error_message", "created_at", "finished_at"]
+        fields = [
+            "id", "video", "params", "status", "progress_percent",
+            "error_message", "created_at", "finished_at",
+        ]
+        read_only_fields = ["status", "progress_percent", "error_message", "created_at", "finished_at"]
 
 
 class SceneBoundarySerializer(serializers.ModelSerializer):
