@@ -1,6 +1,10 @@
 # Celery tasks: the two long-running jobs (scene detection, final export)
 # that the dashboard kicks off and then polls Notification rows to find out
-# about, rather than waiting on the request.
+# about, rather than waiting on the request; plus a lightweight background
+# metadata backfill so newly-discovered videos don't block the request that
+# lists them.
+import subprocess
+
 from celery import shared_task
 from django.utils import timezone
 
@@ -9,6 +13,33 @@ from .services.detection import run_detection
 from .services.matching import carry_forward_reviews
 from .services.probe import probe_duration_seconds
 from .services.scenes import rebuild_scenes
+from .services.thumbnail import ensure_thumbnail
+
+
+@shared_task
+def generate_video_metadata_task(video_id: int):
+    """Probes duration and pre-generates the thumbnail for one video. Run
+    per-video after sync/create so the list endpoint stays instant -- the
+    frontend shows a placeholder card until duration_seconds is populated,
+    which is what signals this task has finished.
+
+    Deliberately swallows ffmpeg/ffprobe failures (e.g. an unreadable or
+    still-copying file): this is a best-effort backfill, not a job the user
+    is waiting on or gets a failure notification for. It just leaves the
+    video's card showing a placeholder rather than tanking the whole sync.
+    """
+    try:
+        video = Video.objects.get(id=video_id)
+    except Video.DoesNotExist:
+        return
+
+    try:
+        if video.duration_seconds is None:
+            video.duration_seconds = probe_duration_seconds(video.path)
+            video.save(update_fields=["duration_seconds"])
+        ensure_thumbnail(video)
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        pass
 
 
 @shared_task(bind=True)

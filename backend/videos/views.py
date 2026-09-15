@@ -21,7 +21,7 @@ from .services.library import sync_library
 from .services.range_response import serve_file_with_range
 from .services.scenes import rebuild_scenes
 from .services.thumbnail import ensure_thumbnail
-from .tasks import export_video_task, run_detection_task
+from .tasks import export_video_task, generate_video_metadata_task, run_detection_task
 
 
 def _global_default_params() -> dict:
@@ -61,12 +61,24 @@ class VideoViewSet(viewsets.ModelViewSet):
     queryset = Video.objects.all()
     serializer_class = VideoSerializer
 
+    def perform_create(self, serializer):
+        # Manually-added videos (via the directory browser or a typed path)
+        # get the same instant-list/backfilled-metadata treatment as a
+        # synced one.
+        video = serializer.save()
+        generate_video_metadata_task.delay(video.id)
+
     @action(detail=False, methods=["post"])
     def sync(self, request):
         # Walks VIDEO_ROOT for video files not already known and adds them --
         # this is what makes the library page "just show up populated"
-        # rather than requiring every file to be added by hand.
+        # rather than requiring every file to be added by hand. Returns as
+        # soon as the rows exist; duration/thumbnail are backfilled by a
+        # Celery task per video so this request (and the page render that
+        # follows it) isn't blocked on dozens of ffmpeg calls.
         created = sync_library()
+        for video in created:
+            generate_video_metadata_task.delay(video.id)
         return Response(VideoSerializer(created, many=True).data, status=status.HTTP_201_CREATED)
 
     @action(detail=False, methods=["get"])

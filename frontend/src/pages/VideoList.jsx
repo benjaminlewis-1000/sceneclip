@@ -29,10 +29,16 @@ export default function VideoList() {
   }, [refresh]);
 
   useEffect(() => {
-    const hasActiveJob = videos.some(
-      (v) => IN_PROGRESS_STATUSES.has(v.status) || v.export_progress_percent != null
+    // Also keeps polling while any video is still waiting on its background
+    // metadata backfill (duration_seconds null), so a thumbnail placeholder
+    // flips over to the real image without a manual refresh.
+    const hasPendingWork = videos.some(
+      (v) =>
+        IN_PROGRESS_STATUSES.has(v.status) ||
+        v.export_progress_percent != null ||
+        v.duration_seconds == null
     );
-    if (!hasActiveJob) return undefined;
+    if (!hasPendingWork) return undefined;
     const interval = setInterval(refresh, POLL_MS);
     return () => clearInterval(interval);
   }, [videos, refresh]);
@@ -100,16 +106,25 @@ export default function VideoList() {
 function VideoCard({ video, onReprocess, onExport, onToggleDone }) {
   const inProgress = IN_PROGRESS_STATUSES.has(video.status);
   const exporting = video.export_progress_percent != null;
+  // duration_seconds is set by the same background task that generates the
+  // thumbnail (see tasks.py:generate_video_metadata_task) -- using it as
+  // the "ready" signal avoids requesting a thumbnail that would otherwise
+  // still have to be generated synchronously on this request.
+  const metadataReady = video.duration_seconds != null;
 
   return (
     <div className={`video-card${video.marked_done ? " done" : ""}`}>
       <div className="video-card-row">
-        <img
-          className="video-thumb"
-          src={api.videoThumbnailUrl(video.id)}
-          alt=""
-          loading="lazy"
-        />
+        {metadataReady ? (
+          <img
+            className="video-thumb"
+            src={api.videoThumbnailUrl(video.id)}
+            alt=""
+            loading="lazy"
+          />
+        ) : (
+          <div className="video-thumb video-thumb-pending">Processing...</div>
+        )}
         <div className="video-card-info">
           <Link to={`/videos/${video.id}`}>{video.path}</Link>
           <span className="video-status">

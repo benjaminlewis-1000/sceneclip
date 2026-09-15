@@ -173,6 +173,15 @@ button.active {
   flex-shrink: 0;
 }
 
+.video-thumb-pending {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  color: #7a8098;
+  text-align: center;
+}
+
 .video-card-info {
   display: flex;
   flex-direction: column;
