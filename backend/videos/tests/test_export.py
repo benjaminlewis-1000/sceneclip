@@ -9,7 +9,7 @@ import pytest
 from django.test import override_settings
 
 from videos.models import Scene, Video
-from videos.services.export import export_one_scene, export_scenes
+from videos.services.export import export_one_scene, export_scenes, finalize_scene
 
 pytestmark = pytest.mark.django_db
 
@@ -29,7 +29,7 @@ def _make_synthetic_video(path, duration=4):
 def test_export_one_scene_encodes_and_marks_exported(tmp_path):
     source = tmp_path / "source.mp4"
     _make_synthetic_video(source)
-    out_dir = tmp_path / "output"
+    temp_dir = tmp_path / "temp_scene_clips"
 
     video = Video.objects.create(path=str(source), duration_seconds=4.0)
     scene = Scene.objects.create(
@@ -38,13 +38,16 @@ def test_export_one_scene_encodes_and_marks_exported(tmp_path):
     )
     scene.refresh_from_db()  # coerces scene_date from a raw string to a real date
 
-    with override_settings(OUTPUT_ROOT=str(out_dir)):
+    with override_settings(TEMP_SCENE_CLIPS_DIR=str(temp_dir)):
         out_path = export_one_scene(scene)
 
     scene.refresh_from_db()
     assert scene.exported is True
     assert scene.exported_path == out_path
     assert scene.export_progress_percent is None
+    # Lands in the unverified staging dir, not OUTPUT_ROOT -- only
+    # finalize_scene() (the `verify` action) moves it there.
+    assert str(temp_dir) in out_path
     # Dated filename, not just a bare ordinal -- easier to identify on disk
     # without opening the file.
     assert os.path.basename(out_path) == "1994-06-01_scene_001.mp4"
@@ -74,7 +77,7 @@ def test_export_one_scene_encodes_and_marks_exported(tmp_path):
 def test_export_scenes_skips_already_exported(tmp_path):
     source = tmp_path / "source.mp4"
     _make_synthetic_video(source)
-    out_dir = tmp_path / "output"
+    temp_dir = tmp_path / "temp_scene_clips"
 
     video = Video.objects.create(path=str(source), duration_seconds=4.0)
     Scene.objects.create(
@@ -85,9 +88,39 @@ def test_export_scenes_skips_already_exported(tmp_path):
         video=video, start_seconds=2.0, end_seconds=4.0, scene_date="1994-01-01",
     )
 
-    with override_settings(OUTPUT_ROOT=str(out_dir)):
+    with override_settings(TEMP_SCENE_CLIPS_DIR=str(temp_dir)):
         exported_paths = export_scenes(video)
 
     assert len(exported_paths) == 1
     pending.refresh_from_db()
     assert pending.exported is True
+
+
+def test_finalize_scene_moves_clip_to_output_root_and_verifies(tmp_path):
+    source = tmp_path / "source.mp4"
+    _make_synthetic_video(source)
+    temp_dir = tmp_path / "temp_scene_clips"
+    out_dir = tmp_path / "output"
+
+    video = Video.objects.create(path=str(source), duration_seconds=4.0)
+    scene = Scene.objects.create(
+        video=video, start_seconds=0.0, end_seconds=2.0, scene_date="1994-06-01",
+    )
+    scene.refresh_from_db()
+
+    with override_settings(TEMP_SCENE_CLIPS_DIR=str(temp_dir)):
+        export_one_scene(scene)
+    scene.refresh_from_db()
+    temp_path = scene.exported_path
+    assert os.path.exists(temp_path)
+
+    with override_settings(OUTPUT_ROOT=str(out_dir)):
+        final_path = finalize_scene(scene)
+
+    scene.refresh_from_db()
+    assert scene.verified is True
+    assert scene.exported_path == final_path
+    assert not os.path.exists(temp_path)  # moved, not copied
+    assert os.path.exists(final_path)
+    assert str(out_dir) in final_path
+    assert os.path.basename(final_path) == os.path.basename(temp_path)

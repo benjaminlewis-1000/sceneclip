@@ -9,8 +9,14 @@ ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-COPY requirements.txt /code/requirements.txt
-RUN pip3 install -r /code/requirements.txt
+COPY requirements.txt requirements-dev.txt /code/
+# Dev deps (pytest) baked in too, not just prod -- this image doubles as
+# the test-runner (see CLAUDE.md), and installing them ad hoc into a
+# running container stopped working once containers run as a non-root
+# user (see `user:` in docker-compose.yml): a non-root user can't write
+# into /opt/venv's site-packages, which was owned by root from this build
+# step regardless.
+RUN pip3 install -r /code/requirements-dev.txt
 
 COPY . /code
 

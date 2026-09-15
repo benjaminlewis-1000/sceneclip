@@ -18,6 +18,7 @@ from .serializers import (
 )
 from .services.browse import InvalidBrowsePath, list_directory
 from .services.clips import ensure_preview_clip
+from .services.export import finalize_scene
 from .services.library import sync_library
 from .services.range_response import serve_file_with_range
 from .services.scenes import SceneStillEncoding, rebuild_scenes, undo_boundary_review
@@ -396,13 +397,20 @@ class SceneViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"])
     def verify(self, request, pk=None):
+        # The one workflow behind both entry points: the Verify Queue page
+        # and the per-scene "Verify" button on VideoDetail both hit this
+        # same action -- moves the clip out of TEMP_SCENE_CLIPS_DIR into
+        # OUTPUT_ROOT (see services/export.py:finalize_scene) and marks it
+        # verified, so OUTPUT_ROOT only ever holds clips a human actually
+        # confirmed are right.
         scene = self.get_object()
         if not scene.exported:
             return Response({"error": "Not encoded yet."}, status=400)
+        if scene.verified:
+            return Response({"error": "Already verified."}, status=400)
         if not scene.scene_date:
             return Response({"error": "A date is required before this scene can be verified."}, status=400)
-        scene.verified = True
-        scene.save(update_fields=["verified"])
+        finalize_scene(scene)
         return Response(SceneSerializer(scene).data)
 
 

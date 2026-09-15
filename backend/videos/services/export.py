@@ -1,13 +1,18 @@
-"""Final chapter export: cuts each approved+enriched Scene out of its source
-video into settings.OUTPUT_ROOT, writing the enrichment fields in as
-container metadata.
+"""Chapter export, in two stages:
 
-export_one_scene() is the shared primitive -- used both by export_scenes()
-(the bulk "Export approved scenes" button, a catch-all for anything that
-slipped through) and by the automatic per-scene encode triggered the moment
-a scene closes (see services/scenes.py), which is the primary path now.
+1. export_one_scene() cuts a Scene out of its source video into
+   settings.TEMP_SCENE_CLIPS_DIR (not the final output folder -- nobody's
+   watched it yet). Used both by export_scenes() (the bulk "Export approved
+   scenes" catch-all) and by the automatic per-scene encode triggered the
+   moment a scene closes (see services/scenes.py), which is the primary
+   path now.
+2. finalize_scene() moves an already-encoded, human-verified clip from
+   there into settings.OUTPUT_ROOT -- called by the `verify` action, so
+   OUTPUT_ROOT only ever holds clips someone's actually confirmed are
+   right.
 """
 import os
+import shutil
 import subprocess
 import time
 from typing import Callable, Optional
@@ -58,6 +63,14 @@ def _output_dir_for(video) -> str:
     return out_dir
 
 
+def _temp_dir_for(video) -> str:
+    from django.conf import settings
+
+    out_dir = os.path.join(settings.TEMP_SCENE_CLIPS_DIR, _safe_name(video.path))
+    os.makedirs(out_dir, exist_ok=True)
+    return out_dir
+
+
 def _scene_output_filename(scene) -> str:
     # Ordinal position among this video's scenes in chronological order --
     # stable in practice since approving/rejecting an existing boundary
@@ -73,7 +86,7 @@ def export_one_scene(scene, on_progress: Optional[Callable[[float], None]] = Non
     as container metadata, and marks it exported. `on_progress` receives a
     0.0-1.0 fraction through this scene's own encode."""
     video = scene.video
-    out_dir = _output_dir_for(video)
+    out_dir = _temp_dir_for(video)
     out_path = os.path.join(out_dir, _scene_output_filename(scene))
     duration = scene.end_seconds - scene.start_seconds
 
@@ -124,6 +137,23 @@ def export_one_scene(scene, on_progress: Optional[Callable[[float], None]] = Non
     scene.encode_started_at = None
     scene.save(update_fields=["exported", "exported_path", "export_progress_percent", "encode_started_at"])
     return out_path
+
+
+def finalize_scene(scene) -> str:
+    """Moves an encoded scene's clip from TEMP_SCENE_CLIPS_DIR into
+    OUTPUT_ROOT and marks it verified -- called by the `verify` action once
+    a human has actually watched it and confirmed it's right. shutil.move
+    rather than os.rename since the temp dir (under VIDEO_ROOT) and
+    OUTPUT_ROOT are typically separate mounts/filesystems, and os.rename
+    can't cross that boundary."""
+    out_dir = _output_dir_for(scene.video)
+    final_path = os.path.join(out_dir, os.path.basename(scene.exported_path))
+    shutil.move(scene.exported_path, final_path)
+
+    scene.exported_path = final_path
+    scene.verified = True
+    scene.save(update_fields=["exported_path", "verified"])
+    return final_path
 
 
 def export_scenes(video, progress_callback: Optional[Callable[[int], None]] = None) -> list[str]:

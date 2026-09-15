@@ -120,6 +120,16 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # ---------------------------------------------------------------------------
 VIDEO_ROOT = os.environ.get("VIDEO_ROOT_CONTAINER", "/videos")
 OUTPUT_ROOT = os.environ.get("OUTPUT_ROOT_CONTAINER", "/output")
+# Scene encodes land here first, not in OUTPUT_ROOT -- a fresh auto-encode
+# hasn't been watched by a human yet, and OUTPUT_ROOT is meant to hold only
+# clips someone's actually confirmed are right. Living under VIDEO_ROOT
+# (rather than its own top-level mount) keeps it on the same filesystem as
+# the source tapes without needing another docker-compose volume; it's
+# excluded from library scanning/browsing (see services/library.py,
+# services/browse.py) so it never shows up as something to detect scenes
+# in. The `verify` action (services/export.py:finalize_scene) moves a clip
+# from here into OUTPUT_ROOT once a human confirms it.
+TEMP_SCENE_CLIPS_DIR = os.path.join(VIDEO_ROOT, "_temp_scene_clips")
 PREVIEW_CLIPS_DIR = os.environ.get("PREVIEW_CLIPS_DIR", "/previews")
 
 # ---------------------------------------------------------------------------

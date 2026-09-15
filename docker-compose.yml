@@ -11,6 +11,11 @@ services:
     build:
       context: ./backend
     container_name: sceneclip_web
+    # Without this, the container runs as root -- every file it writes to
+    # the bind mounts below (thumbnails, preview clips, encoded scenes,
+    # collectstatic output) comes out root-owned on the host instead of
+    # owned by whoever's actually supposed to have access to them.
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
     command: bash /code/startup.sh
     env_file: .env
     environment:
@@ -18,6 +23,13 @@ services:
     volumes:
       - ./backend:/code
       - ${VIDEO_ROOT}:/videos:ro
+      # Layered, more-specific rw mount inside the otherwise-read-only
+      # VIDEO_ROOT bind -- the only part of the source tree the app is
+      # allowed to write to (unverified scene encodes; see
+      # config/settings.py:TEMP_SCENE_CLIPS_DIR). Needed here so `web` can
+      # stream a not-yet-verified clip and perform the verify-time move
+      # into OUTPUT_ROOT.
+      - ${VIDEO_ROOT}/_temp_scene_clips:/videos/_temp_scene_clips
       - ${OUTPUT_ROOT}:/output
       - ${APPDATA_ROOT}/media:/media
       - ${APPDATA_ROOT}/previews:/previews
@@ -41,6 +53,7 @@ services:
     build:
       context: ./backend
     container_name: sceneclip_worker
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
     # Also consumes the default "celery" queue (metadata backfill, the
     # orphaned-work sweep task) and is the only one of the two running -B
     # (embedded beat for the periodic sweep) -- running it on both would
@@ -66,6 +79,7 @@ services:
     build:
       context: ./backend
     container_name: sceneclip_worker_encode
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
     command: celery -A config worker -l INFO -c 2 -Q encoding --hostname=encode@%h
     env_file: .env
     environment:
@@ -73,6 +87,9 @@ services:
     volumes:
       - ./backend:/code
       - ${VIDEO_ROOT}:/videos:ro
+      # See the same mount on `web` -- this is the container that actually
+      # writes the initial (unverified) encode.
+      - ${VIDEO_ROOT}/_temp_scene_clips:/videos/_temp_scene_clips
       - ${OUTPUT_ROOT}:/output
       - ${APPDATA_ROOT}/media:/media
       - ${APPDATA_ROOT}/previews:/previews

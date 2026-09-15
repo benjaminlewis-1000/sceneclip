@@ -16,8 +16,15 @@ VIDEO_EXTENSIONS = {
 def sync_library() -> list[Video]:
     existing_paths = set(Video.objects.values_list("path", flat=True))
     created = []
+    temp_clips_name = os.path.basename(settings.TEMP_SCENE_CLIPS_DIR)
 
-    for root, _dirs, files in os.walk(settings.VIDEO_ROOT):
+    for root, dirs, files in os.walk(settings.VIDEO_ROOT):
+        # Scene encodes land here before a human verifies them (see
+        # config/settings.py:TEMP_SCENE_CLIPS_DIR) -- never scan it as
+        # source material, or every auto-encoded clip would show up as its
+        # own "video" needing scene detection.
+        if root == settings.VIDEO_ROOT:
+            dirs[:] = [d for d in dirs if d != temp_clips_name]
         for name in files:
             if os.path.splitext(name)[1].lower() not in VIDEO_EXTENSIONS:
                 continue

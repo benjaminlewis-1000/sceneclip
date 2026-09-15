@@ -1,10 +1,12 @@
 # API-level smoke tests: auth is enforced by default (the whole point of
 # DEFAULT_PERMISSION_CLASSES=[IsAuthenticated] in settings.py), and the
 # review/adjust endpoints behave as documented.
+import os
 from unittest import mock
 
 import pytest
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from rest_framework.test import APIClient
 
 from videos.models import DetectionRun, Notification, Scene, SceneBoundary, Video
@@ -264,7 +266,7 @@ def test_scene_clip_404s_when_not_encoded():
     assert response.status_code == 404
 
 
-def test_scene_verify_requires_encoded_and_dated():
+def test_scene_verify_requires_encoded_and_dated(tmp_path):
     user = get_user_model().objects.create_user(username="benjamin15", password="x")
     client = APIClient()
     client.force_authenticate(user=user)
@@ -275,17 +277,25 @@ def test_scene_verify_requires_encoded_and_dated():
     response = client.post(f"/api/scenes/{scene.id}/verify/")
     assert response.status_code == 400  # not exported yet
 
+    # verify() moves the file (finalize_scene), so it needs a real one to
+    # move -- mirrors what an actual encode leaves behind.
+    clip_path = tmp_path / "clip.mp4"
+    clip_path.write_bytes(b"fake mp4 data")
     scene.exported = True
-    scene.save(update_fields=["exported"])
+    scene.exported_path = str(clip_path)
+    scene.save(update_fields=["exported", "exported_path"])
     response = client.post(f"/api/scenes/{scene.id}/verify/")
     assert response.status_code == 400  # exported but still no date
 
     scene.scene_date = "1994-01-01"
     scene.save(update_fields=["scene_date"])
-    response = client.post(f"/api/scenes/{scene.id}/verify/")
+    with override_settings(OUTPUT_ROOT=str(tmp_path / "output")):
+        response = client.post(f"/api/scenes/{scene.id}/verify/")
     assert response.status_code == 200
     scene.refresh_from_db()
     assert scene.verified is True
+    assert not clip_path.exists()  # moved out of the temp staging dir
+    assert os.path.exists(scene.exported_path)
 
 
 def test_scene_verify_queue_returns_next_unverified_exported_scene():

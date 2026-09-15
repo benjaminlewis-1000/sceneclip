@@ -22,8 +22,14 @@ def list_directory(relative_path: str = "") -> dict:
     if not os.path.isdir(target):
         raise InvalidBrowsePath("not a directory")
 
+    temp_clips_name = os.path.basename(settings.TEMP_SCENE_CLIPS_DIR)
     entries = []
     for name in sorted(os.listdir(target)):
+        if target == root and name == temp_clips_name:
+            # Internal staging area for unverified scene encodes (see
+            # config/settings.py:TEMP_SCENE_CLIPS_DIR) -- not something to
+            # pick as a video to add.
+            continue
         full = os.path.join(target, name)
         if os.path.isdir(full):
             entries.append({"name": name, "type": "dir"})

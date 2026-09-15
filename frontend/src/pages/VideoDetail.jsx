@@ -84,6 +84,11 @@ export default function VideoDetail() {
     refresh();
   };
 
+  const verifyScene = async (scene) => {
+    await api.verifyScene(scene.id);
+    refresh();
+  };
+
   const undoBoundary = async (boundaryId) => {
     if (!boundaryId) return;
     const proceed = window.confirm(
@@ -236,6 +241,13 @@ export default function VideoDetail() {
                     title={!s.end_boundary ? "This scene is still open (no end cut yet)" : undefined}
                   >
                     Undo end
+                  </button>
+                  <button
+                    onClick={() => verifyScene(s)}
+                    disabled={!s.exported || s.verified}
+                    title={!s.exported ? "Not encoded yet" : s.verified ? "Already verified" : undefined}
+                  >
+                    Verify
                   </button>
                   {isOpenScene && !s.exported && (
                     <button
