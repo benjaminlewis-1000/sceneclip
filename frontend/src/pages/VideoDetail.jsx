@@ -132,6 +132,14 @@ export default function VideoDetail() {
         src={playerSrc}
         controls
         autoPlay={watchingSceneId != null}
+        // Loading a new src resets playbackRate to 1 in most browsers,
+        // which happens *after* the [speed, ...] effect below already ran
+        // (it fires once on mount, before the browser's own reset kicks
+        // in) -- re-applying once metadata is actually loaded is what
+        // makes the selected speed still take effect on the next clip.
+        onLoadedMetadata={() => {
+          if (videoRef.current) videoRef.current.playbackRate = speed;
+        }}
         style={{ maxWidth: "720px", width: "100%", display: "block", margin: "0 auto" }}
       />
       {watchingSceneId != null && (

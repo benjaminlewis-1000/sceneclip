@@ -75,6 +75,12 @@ export default function VerifyQueue() {
         src={api.sceneClipUrl(scene.id)}
         autoPlay
         controls
+        // Loading a new src resets playbackRate to 1 in most browsers --
+        // re-applying once metadata is actually loaded keeps the selected
+        // speed sticking as the queue auto-advances to the next scene.
+        onLoadedMetadata={() => {
+          if (videoRef.current) videoRef.current.playbackRate = speed;
+        }}
         style={{ maxWidth: "720px", width: "100%", display: "block", margin: "0 auto" }}
       />
       <div className="speed-controls">

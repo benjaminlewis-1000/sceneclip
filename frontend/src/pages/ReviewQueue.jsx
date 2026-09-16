@@ -259,6 +259,13 @@ export default function ReviewQueue() {
         src={`/api/boundaries/${peekBoundary.id}/clip/${isPeeking ? "" : `?v=${clipVersion}`}`}
         autoPlay
         controls
+        // Loading a new src resets playbackRate to 1 in most browsers, and
+        // a fresh clip after auto-advance/peek-navigate is exactly that --
+        // re-applying once metadata is actually loaded keeps the selected
+        // speed sticking on the next clip.
+        onLoadedMetadata={() => {
+          if (videoRef.current) videoRef.current.playbackRate = speed;
+        }}
         style={{ maxWidth: "720px", width: "100%", display: "block", margin: "0 auto" }}
       />
       <div className="speed-controls">
