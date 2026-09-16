@@ -1,6 +1,7 @@
 # Covers export_one_scene: the shared per-scene encode primitive used both
 # by export_scenes() (a bulk catch-all, no longer surfaced as its own UI
 # button) and the automatic per-scene encode triggered when a scene closes.
+import datetime
 import json
 import os
 import subprocess
@@ -9,9 +10,18 @@ import pytest
 from django.test import override_settings
 
 from videos.models import Scene, Video
-from videos.services.export import export_one_scene, export_scenes, finalize_scene
+from videos.services.export import creation_time_for_date, export_one_scene, export_scenes, finalize_scene
 
 pytestmark = pytest.mark.django_db
+
+
+def test_creation_time_for_date_uses_noon_eastern_accounting_for_dst():
+    # April 24 1993 falls after that year's (pre-2007-rules) DST start --
+    # EDT, UTC-4 -- so noon Eastern is 16:00 UTC.
+    assert creation_time_for_date(datetime.date(1993, 4, 24)) == "1993-04-24T16:00:00Z"
+    # January 1 1994 is standard time -- EST, UTC-5 -- so noon Eastern is
+    # 17:00 UTC, still comfortably clear of the date boundary either way.
+    assert creation_time_for_date(datetime.date(1994, 1, 1)) == "1994-01-01T17:00:00Z"
 
 
 def _make_synthetic_video(path, duration=4):
@@ -55,7 +65,7 @@ def test_export_one_scene_encodes_and_marks_exported(tmp_path):
     probe = subprocess.run(
         [
             "ffprobe", "-v", "error", "-of", "json", "-show_entries",
-            "format_tags=title,comment,date,description",
+            "format_tags=title,comment,date,description,creation_time",
             out_path,
         ],
         capture_output=True, text=True, check=True,
@@ -66,6 +76,12 @@ def test_export_one_scene_encodes_and_marks_exported(tmp_path):
     assert tags["title"] == "Birthday cake"
     assert tags["comment"] == "Birthday cake"
     assert tags["date"] == "1994-06-01"
+    # Real structured timestamp, not just a free-text date tag -- what
+    # exiftool/etc. read as CreateDate. Pinned to noon Eastern (June 1st is
+    # EDT, UTC-4) specifically so it can't round-trip across a date
+    # boundary in another timezone; ffmpeg normalizes to microsecond
+    # precision on the way back out.
+    assert tags["creation_time"] == "1994-06-01T16:00:00.000000Z"
     # Traceability back to the source tape and where in it this came from --
     # folded into `description` since ffmpeg's mov/mp4 muxer silently drops
     # any metadata key it doesn't recognize as standard.

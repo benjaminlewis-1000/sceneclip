@@ -11,16 +11,33 @@
    OUTPUT_ROOT only ever holds clips someone's actually confirmed are
    right.
 """
+import datetime
 import os
 import shutil
 import subprocess
 import time
 from typing import Callable, Optional
+from zoneinfo import ZoneInfo
 
 # How often (wall-clock seconds) to write a progress update back to the DB
 # while an ffmpeg cut is running -- ffmpeg's -progress output emits far more
 # often than that, and there's no value updating every line.
 PROGRESS_WRITE_INTERVAL_SECONDS = 1.0
+
+_EASTERN = ZoneInfo("America/New_York")
+_UTC = ZoneInfo("UTC")
+
+
+def creation_time_for_date(scene_date: datetime.date) -> str:
+    """A scene_date is a date, not a moment -- pins it to noon Eastern
+    (not midnight) before converting to the UTC ffmpeg/mov's `creation_time`
+    metadata actually wants, so the date it round-trips to in any other
+    timezone a downstream tool happens to render it in stays comfortably
+    away from a day boundary. zoneinfo resolves the correct EST/EDT offset
+    for the specific date (including pre-2007 historical DST rules, which
+    matter here -- these are VHS tapes from the 90s)."""
+    noon_eastern = datetime.datetime.combine(scene_date, datetime.time(12, 0), tzinfo=_EASTERN)
+    return noon_eastern.astimezone(_UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _safe_name(path: str) -> str:
@@ -102,6 +119,13 @@ def export_one_scene(scene, on_progress: Optional[Callable[[float], None]] = Non
         metadata_args += ["-metadata", f"comment={scene.description}"]
     if scene.scene_date:
         metadata_args += ["-metadata", f"date={scene.scene_date.isoformat()}"]
+        # The real, structured timestamp -- ffmpeg's mov/mp4 muxer writes
+        # this straight into the mvhd/tkhd/mdhd atoms' creation/modification
+        # time fields (not a free-text tag), which is what tools like
+        # exiftool report as CreateDate and what any file manager's "date
+        # taken"/"media created" column actually reads, rather than a guess
+        # based on file mtime.
+        metadata_args += ["-metadata", f"creation_time={creation_time_for_date(scene.scene_date)}"]
     # Traceability back to the source tape and where in it this came from.
     # ffmpeg's mov/mp4 muxer silently drops any metadata key it doesn't
     # recognize as standard (verified empirically -- a custom "source_file"
