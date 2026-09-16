@@ -36,6 +36,12 @@ class VideoSerializer(serializers.ModelSerializer):
     # to actually produce a chapter.
     has_boundaries = serializers.SerializerMethodField()
     has_approved_boundaries = serializers.SerializerMethodField()
+    # Gates the "Mark done" button -- true only once every candidate
+    # boundary has an actual verdict (nothing left pending) and every
+    # derived scene, including the always-manual trailing one, has been
+    # human-verified. False (not just unset) for a video with no scenes at
+    # all yet, so a never-detected video can't be marked done trivially.
+    ready_to_mark_done = serializers.SerializerMethodField()
 
     class Meta:
         model = Video
@@ -43,7 +49,7 @@ class VideoSerializer(serializers.ModelSerializer):
             "id", "path", "duration_seconds", "status", "marked_done",
             "export_progress_percent", "detection_progress_percent",
             "detection_run_status", "detection_exhausted", "last_detection_error",
-            "has_boundaries", "has_approved_boundaries",
+            "has_boundaries", "has_approved_boundaries", "ready_to_mark_done",
             "detection_params_override", "created_at", "updated_at",
         ]
         read_only_fields = [
@@ -97,6 +103,23 @@ class VideoSerializer(serializers.ModelSerializer):
         if annotated is not None:
             return annotated
         return obj.boundaries.filter(review_status=SceneBoundary.ReviewStatus.APPROVED).exists()
+
+    def get_ready_to_mark_done(self, obj):
+        if not obj.scenes.exists():
+            return False
+        if obj.boundaries.filter(review_status=SceneBoundary.ReviewStatus.PENDING).exists():
+            return False
+        return not obj.scenes.filter(verified=False).exists()
+
+    def validate(self, attrs):
+        # Mirrors the frontend's disabled "Mark done" button -- enforced
+        # here too so it can't be set through a raw PATCH either, same as
+        # the date-required guards on review/verify elsewhere.
+        if attrs.get("marked_done") and self.instance and not self.get_ready_to_mark_done(self.instance):
+            raise serializers.ValidationError(
+                {"marked_done": "Not every boundary has been reviewed and every scene verified yet."}
+            )
+        return attrs
 
 
 class DetectionRunSerializer(serializers.ModelSerializer):

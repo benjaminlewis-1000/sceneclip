@@ -233,7 +233,15 @@ function VideoCard({ video, onReprocess, onToggleDone }) {
             Review this video
           </button>
         )}
-        <button onClick={onToggleDone}>
+        <button
+          onClick={onToggleDone}
+          disabled={!video.marked_done && !video.ready_to_mark_done}
+          title={
+            !video.marked_done && !video.ready_to_mark_done
+              ? "Every candidate boundary must be reviewed and every scene verified first"
+              : undefined
+          }
+        >
           {video.marked_done ? "Mark not done" : "Mark done"}
         </button>
       </div>

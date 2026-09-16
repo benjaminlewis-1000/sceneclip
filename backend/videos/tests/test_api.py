@@ -128,6 +128,51 @@ def test_video_serializer_flags_boundary_and_approval_state():
     assert response.data["has_approved_boundaries"] is True
 
 
+def test_ready_to_mark_done_and_mark_done_guard():
+    user = get_user_model().objects.create_user(username="benjamin21", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape21.mp4", duration_seconds=60.0)
+    # Nothing detected yet -- never trivially ready.
+    response = client.get(f"/api/videos/{video.id}/")
+    assert response.data["ready_to_mark_done"] is False
+    response = client.patch(f"/api/videos/{video.id}/", {"marked_done": True}, format="json")
+    assert response.status_code == 400
+
+    run = DetectionRun.objects.create(video=video, params={})
+    approved = SceneBoundary.objects.create(
+        video=video, run=run, timestamp_seconds=10.0, review_status=SceneBoundary.ReviewStatus.APPROVED
+    )
+    pending = SceneBoundary.objects.create(
+        video=video, run=run, timestamp_seconds=20.0, review_status=SceneBoundary.ReviewStatus.PENDING
+    )
+    from videos.services.scenes import rebuild_scenes
+    rebuild_scenes(video)
+    # Two scenes now (0-10, 10-60) -- the pending boundary doesn't split
+    # anything further (only approved ones become cut points) but should
+    # still block "done" until it's actually resolved.
+    response = client.get(f"/api/videos/{video.id}/")
+    assert response.data["ready_to_mark_done"] is False
+
+    for scene in video.scenes.all():
+        scene.exported = True
+        scene.verified = True
+        scene.save(update_fields=["exported", "verified"])
+    response = client.get(f"/api/videos/{video.id}/")
+    assert response.data["ready_to_mark_done"] is False  # pending boundary still blocks it
+
+    pending.review_status = SceneBoundary.ReviewStatus.REJECTED
+    pending.save(update_fields=["review_status"])
+    response = client.get(f"/api/videos/{video.id}/")
+    assert response.data["ready_to_mark_done"] is True
+
+    response = client.patch(f"/api/videos/{video.id}/", {"marked_done": True}, format="json")
+    assert response.status_code == 200
+    video.refresh_from_db()
+    assert video.marked_done is True
+
+
 def test_detect_marks_video_detecting_immediately_at_queue_time():
     # Video.status must flip the moment a run is queued, not only once a
     # Celery worker slot actually starts it -- otherwise, with worker
