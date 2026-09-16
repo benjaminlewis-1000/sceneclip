@@ -119,6 +119,12 @@ export default function VideoDetail() {
       <BackButton />
       <h1>{video.path}</h1>
       <p>Status: {video.status}</p>
+      {video.detection_exhausted && (
+        <p className="video-stuck" title={video.last_detection_error || undefined}>
+          Stuck -- detection failed repeatedly and won't auto-retry again. Click "Run detection"
+          below, or hover for the last error.
+        </p>
+      )}
 
       <video
         ref={videoRef}

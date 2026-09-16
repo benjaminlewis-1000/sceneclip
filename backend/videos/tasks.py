@@ -12,6 +12,7 @@ from django.utils import timezone
 from .models import DetectionRun, Notification, Scene, SceneBoundary, Video
 from .services.detection import run_detection
 from .services.matching import carry_forward_reviews
+from .services.params import resolve_detection_params
 from .services.probe import probe_duration_seconds
 from .services.scenes import rebuild_scenes, scenes_ready_to_encode
 from .services.thumbnail import ensure_thumbnail
@@ -24,6 +25,36 @@ from .services.thumbnail import ensure_thumbnail
 # interrupting something that was actually about to finish.
 STALE_DETECTION_RUN_AGE = datetime.timedelta(hours=3)
 STALE_SCENE_ENCODE_AGE = datetime.timedelta(hours=1)
+# A video can sit at PENDING because it was just added and never queued at
+# all, or because every attempt so far genuinely failed (not just an
+# orphaned worker restart -- that case re-queues immediately, separately,
+# in sweep_orphaned_work below). Auto-queuing it is the whole point --
+# "process everything that hasn't been detected yet" without a manual
+# Reprocess click -- but a video whose failure is really a per-file problem
+# (corrupt/unsupported source, e.g.) would otherwise get re-queued and
+# re-fail forever, once per sweep cycle. Capping it means it gets a few
+# automatic chances (transient issues -- a Samba hiccup, say -- do happen)
+# before falling back to sitting pending for a human to look at.
+MAX_AUTO_DETECTION_RETRIES = 3
+
+
+def queue_pending_videos() -> int:
+    """Auto-queues detection for every video sitting at PENDING that hasn't
+    already used up its automatic retries -- this is what makes "process
+    everything that hasn't been detected yet" actually automatic instead of
+    requiring a manual Reprocess/"Process all" click, which was the whole
+    point (see MAX_AUTO_DETECTION_RETRIES above for why it's capped)."""
+    queued = 0
+    for video in Video.objects.filter(status=Video.Status.PENDING):
+        failed_count = DetectionRun.objects.filter(video=video, status=DetectionRun.Status.FAILED).count()
+        if failed_count >= MAX_AUTO_DETECTION_RETRIES:
+            continue
+        run = DetectionRun.objects.create(video=video, params=resolve_detection_params(video))
+        video.status = Video.Status.DETECTING
+        video.save(update_fields=["status"])
+        run_detection_task.delay(run.id)
+        queued += 1
+    return queued
 
 
 def sweep_orphaned_work(only_unconditional: bool = False) -> dict:
@@ -34,7 +65,10 @@ def sweep_orphaned_work(only_unconditional: bool = False) -> dict:
     unconditionally orphaned, since the process that was running it can't
     still exist) or, periodically, because a task has been running
     implausibly long for a worker that's still alive (hung ffmpeg/
-    PySceneDetect subprocess, OOM-killed child, etc.).
+    PySceneDetect subprocess, OOM-killed child, etc.). Also auto-queues any
+    video that's never been attempted, or whose attempts genuinely failed
+    (see queue_pending_videos) -- same "no manual click needed" goal, just
+    a different flavor of work left undone.
 
     `only_unconditional=True` (used at startup) skips the age check and
     sweeps every in-progress row regardless of how recently it started --
@@ -42,7 +76,7 @@ def sweep_orphaned_work(only_unconditional: bool = False) -> dict:
     case, not a sign it's still legitimately running.
     """
     now = timezone.now()
-    swept = {"runs": 0, "scenes": 0}
+    swept = {"runs": 0, "scenes": 0, "pending_queued": 0}
 
     runs = DetectionRun.objects.filter(status=DetectionRun.Status.RUNNING).select_related("video")
     if not only_unconditional:
@@ -101,6 +135,8 @@ def sweep_orphaned_work(only_unconditional: bool = False) -> dict:
         # exported, so it's still eligible.
         trigger_auto_encode(scene.video)
         swept["scenes"] += 1
+
+    swept["pending_queued"] = queue_pending_videos()
 
     return swept
 

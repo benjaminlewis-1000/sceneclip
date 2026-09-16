@@ -20,6 +20,7 @@ from .services.browse import InvalidBrowsePath, list_directory
 from .services.clips import ensure_preview_clip
 from .services.export import finalize_scene
 from .services.library import sync_library
+from .services.params import resolve_detection_params
 from .services.range_response import serve_file_with_range
 from .services.scenes import SceneStillEncoding, rebuild_scenes, undo_boundary_review
 from .services.thumbnail import ensure_thumbnail
@@ -30,18 +31,6 @@ from .tasks import (
     run_detection_task,
     trigger_auto_encode,
 )
-
-
-def _global_default_params() -> dict:
-    """Reads the singleton DetectionParams row, creating it with model
-    defaults on first use, and returns it as a plain dict of detector knobs.
-    """
-    obj, _ = DetectionParams.objects.get_or_create(pk=1)
-    return {
-        "detector": obj.detector,
-        "threshold": obj.threshold,
-        "min_scene_len_seconds": obj.min_scene_len_seconds,
-    }
 
 
 class DetectionParamsView(APIView):
@@ -194,7 +183,7 @@ class VideoViewSet(viewsets.ModelViewSet):
         # Params come from the request body if given, else the video's own
         # saved override, else the library-wide default -- in that order.
         video = self.get_object()
-        params = request.data.get("params") or video.detection_params_override or _global_default_params()
+        params = request.data.get("params") or resolve_detection_params(video)
 
         if request.data.get("save_as_override"):
             video.detection_params_override = params

@@ -99,7 +99,12 @@ export default function VideoList() {
     // Within "detecting", a run actually being worked on is more worth
     // seeing than one just sitting behind a worker-concurrency backlog.
     const runRank = (v) => (v.detection_run_status === "running" ? 0 : 1);
-    return runRank(a) - runRank(b);
+    if (a.status === "detecting") return runRank(a) - runRank(b);
+    // Within "pending", a video that's exhausted its automatic retries
+    // needs a human to look at it -- a normal pending video will just get
+    // auto-queued on its own soon.
+    if (a.status === "pending") return (a.detection_exhausted ? 0 : 1) - (b.detection_exhausted ? 0 : 1);
+    return 0;
   });
   const visibleVideos = sortedVideos.filter((v) => {
     if (filter === "all") return true;
@@ -183,6 +188,13 @@ function VideoCard({ video, onReprocess, onToggleDone }) {
           </span>
         </div>
       </div>
+
+      {video.detection_exhausted && (
+        <p className="video-stuck" title={video.last_detection_error || undefined}>
+          Stuck -- detection failed repeatedly and won't auto-retry again. Click Reprocess, or hover
+          for the last error.
+        </p>
+      )}
 
       {inProgress && video.detection_run_status === "queued" ? (
         // Queued but not yet picked up by a worker (worker concurrency is

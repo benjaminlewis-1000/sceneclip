@@ -23,6 +23,14 @@ class VideoSerializer(serializers.ModelSerializer):
     # backlog (worker concurrency is 2; a "Process all" or the orphan-sweep
     # auto-retry can queue dozens at once).
     detection_run_status = serializers.SerializerMethodField()
+    # True once a PENDING video has used up its automatic retries (see
+    # MAX_AUTO_DETECTION_RETRIES in tasks.py) -- the sweep will keep
+    # skipping it every cycle, so unlike a normal pending video (which will
+    # just get auto-queued soon), this one is stuck until a human looks at
+    # it and clicks Reprocess. last_detection_error carries the most recent
+    # failure's message so the GUI can explain why.
+    detection_exhausted = serializers.SerializerMethodField()
+    last_detection_error = serializers.SerializerMethodField()
     # Drive the frontend's button disabling: "Review this video" needs
     # something to review, "Export clips" needs at least one approved cut
     # to actually produce a chapter.
@@ -34,7 +42,8 @@ class VideoSerializer(serializers.ModelSerializer):
         fields = [
             "id", "path", "duration_seconds", "status", "marked_done",
             "export_progress_percent", "detection_progress_percent",
-            "detection_run_status", "has_boundaries", "has_approved_boundaries",
+            "detection_run_status", "detection_exhausted", "last_detection_error",
+            "has_boundaries", "has_approved_boundaries",
             "detection_params_override", "created_at", "updated_at",
         ]
         read_only_fields = [
@@ -56,6 +65,24 @@ class VideoSerializer(serializers.ModelSerializer):
     def get_detection_run_status(self, obj):
         latest_run = self._latest_run(obj)
         return latest_run.status if latest_run else None
+
+    def _failed_runs(self, obj):
+        if obj.status != Video.Status.PENDING:
+            return []
+        if not hasattr(obj, "_failed_runs_cache"):
+            obj._failed_runs_cache = list(
+                obj.runs.filter(status=DetectionRun.Status.FAILED).order_by("-created_at")
+            )
+        return obj._failed_runs_cache
+
+    def get_detection_exhausted(self, obj):
+        from .tasks import MAX_AUTO_DETECTION_RETRIES
+
+        return len(self._failed_runs(obj)) >= MAX_AUTO_DETECTION_RETRIES
+
+    def get_last_detection_error(self, obj):
+        failed = self._failed_runs(obj)
+        return failed[0].error_message if failed else None
 
     def get_has_boundaries(self, obj):
         # VideoViewSet.get_queryset() annotates this with a single EXISTS

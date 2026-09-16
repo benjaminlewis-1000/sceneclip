@@ -346,6 +346,17 @@ button.active {
   font-style: italic;
 }
 
+.video-stuck {
+  margin: 0.5rem 0 0;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8rem;
+  color: #ffb4b4;
+  background: rgba(255, 90, 90, 0.12);
+  border: 1px solid rgba(255, 90, 90, 0.4);
+  border-radius: 4px;
+  cursor: help;
+}
+
 .progress-track {
   flex: 1;
   height: 6px;

@@ -42,5 +42,8 @@ def _sweep_on_startup(sender=None, **kwargs):
     from videos.tasks import sweep_orphaned_work
 
     swept = sweep_orphaned_work(only_unconditional=True)
-    if swept["runs"] or swept["scenes"]:
-        print(f"[startup sweep] recovered {swept['runs']} run(s), {swept['scenes']} scene encode(s)")
+    if swept["runs"] or swept["scenes"] or swept["pending_queued"]:
+        print(
+            f"[startup sweep] recovered {swept['runs']} run(s), {swept['scenes']} scene encode(s), "
+            f"auto-queued {swept['pending_queued']} pending video(s)"
+        )
