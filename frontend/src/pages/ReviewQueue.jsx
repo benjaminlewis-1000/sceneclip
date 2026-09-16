@@ -51,7 +51,11 @@ export default function ReviewQueue() {
     setBeforeDescription(b?.before_description || "");
     setBeforeDate(b?.before_date || "");
     setAfterDescription(b?.after_description || "");
-    setAfterDate(b?.after_date || "");
+    // Default After to match Before the moment a boundary is first shown
+    // (e.g. Before was just carried forward from the prior boundary's
+    // After) -- still freely editable, and never overrides an After date
+    // that's actually been set already.
+    setAfterDate(b?.after_date || b?.before_date || "");
     setValidationError("");
   };
 
@@ -294,18 +298,24 @@ export default function ReviewQueue() {
           <input
             type="date"
             value={beforeDate}
-            onChange={(e) => {
-              const value = e.target.value;
-              setBeforeDate(value);
-              // Default the After date to match -- same day unless the
-              // reviewer knows otherwise, and it's still freely editable
-              // afterward. Only fills in an actually-blank After date, so
-              // it never clobbers something already typed in.
-              if (!afterDate) setAfterDate(value);
+            // Only setBeforeDate here, not a live copy into After -- a
+            // native date input fires onChange on every keystroke,
+            // including a momentarily "valid" but wrong intermediate value
+            // (e.g. right after typing just the first digit of the year),
+            // and copying that into After immediately picked up the wrong
+            // date. Blur (below) is when the value is actually finalized.
+            onChange={(e) => setBeforeDate(e.target.value)}
+            onBlur={() => {
+              // Default After to match Before once Before is finalized --
+              // same day unless the reviewer knows otherwise, still freely
+              // editable, and never overwrites an After date already set.
+              const finalAfterDate = afterDate || beforeDate;
+              if (finalAfterDate !== afterDate) setAfterDate(finalAfterDate);
+              api.updateBoundary(boundary.id, {
+                before_date: beforeDate || null,
+                after_date: finalAfterDate || null,
+              });
             }}
-            onBlur={() =>
-              api.updateBoundary(boundary.id, { before_date: beforeDate || null, after_date: afterDate || null })
-            }
           />
         </div>
         <div className="boundary-log-row">
