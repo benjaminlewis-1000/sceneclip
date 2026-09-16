@@ -53,7 +53,14 @@ async function request(path, options = {}) {
     throw new Error(`${res.status} ${res.statusText}: ${text}`);
   }
   if (res.status === 204) return null;
-  return res.json();
+  // DRF's JSONRenderer sends an empty body (not the literal string "null")
+  // for `Response(None)` -- res.json() throws a SyntaxError on empty text,
+  // which broke both the boundary and verify queues' "nothing left"
+  // case: the throw happened inside loadNext() before setScene/setBoundary
+  // ever ran, so the page stayed stuck showing "Loading..." forever
+  // instead of ever reaching the actual empty-queue message.
+  const text = await res.text();
+  return text ? JSON.parse(text) : null;
 }
 
 // One function per backend endpoint -- pages import `api` rather than
