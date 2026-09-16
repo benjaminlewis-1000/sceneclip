@@ -240,6 +240,7 @@ export default function ReviewQueue() {
       <h1>{scopedVideoId ? "Review Queue (this video)" : "Review Queue"}</h1>
       <p className="boundary-meta">
         {peekBoundary.video_path} @ {formatTime(peekBoundary.timestamp_seconds)}
+        {allBoundaries.length > 0 && `, Scene ${peekIndex + 1}/${allBoundaries.length}`}
         {isPeeking && ` -- previewing (${peekBoundary.review_status}), not the current boundary`}
       </p>
       {allBoundaries.length > 0 && (
