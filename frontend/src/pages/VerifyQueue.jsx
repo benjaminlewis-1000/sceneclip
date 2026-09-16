@@ -7,7 +7,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api/client.js";
 import BackButton from "../components/BackButton.jsx";
 
-const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
+const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 5, 8, 10];
 
 export default function VerifyQueue() {
   const [scene, setScene] = useState(undefined); // undefined = loading, null = empty queue
