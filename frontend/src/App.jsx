@@ -10,6 +10,7 @@ import VideoList from "./pages/VideoList.jsx";
 import VideoDetail from "./pages/VideoDetail.jsx";
 import NotificationsTab from "./pages/NotificationsTab.jsx";
 import Settings from "./pages/Settings.jsx";
+import Duplicates from "./pages/Duplicates.jsx";
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -46,6 +47,7 @@ export default function App() {
         <NavLink to="/review">Review Queue</NavLink>
         <NavLink to="/verify">Verify</NavLink>
         <NavLink to="/grid">Unreviewed Grid</NavLink>
+        <NavLink to="/duplicates">Duplicates</NavLink>
         <NavLink to="/notifications">
           Notifications{unreadCount > 0 ? ` (${unreadCount})` : ""}
         </NavLink>
@@ -63,6 +65,7 @@ export default function App() {
           <Route path="/review" element={<ReviewQueue />} />
           <Route path="/verify" element={<VerifyQueue />} />
           <Route path="/grid" element={<TileGrid />} />
+          <Route path="/duplicates" element={<Duplicates />} />
           <Route path="/notifications" element={<NotificationsTab />} />
           <Route path="/settings" element={<Settings />} />
         </Routes>

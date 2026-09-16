@@ -18,6 +18,7 @@ from .serializers import (
 )
 from .services.browse import InvalidBrowsePath, list_directory
 from .services.clips import ensure_preview_clip
+from .services.duplicates import mark_duplicate, unmark_duplicate
 from .services.export import finalize_scene
 from .services.library import sync_library
 from .services.params import resolve_detection_params
@@ -215,6 +216,32 @@ class VideoViewSet(viewsets.ModelViewSet):
         # Byte-range streaming of the raw source file so <video> can seek.
         video = self.get_object()
         return serve_file_with_range(request, video.path)
+
+    @action(detail=True, methods=["post"])
+    def mark_duplicate(self, request, pk=None):
+        # `self` (the video this action is called on) is the losing copy --
+        # its clips get deleted; `keep` (given in the body) is untouched.
+        duplicate = self.get_object()
+        keep_id = request.data.get("keep")
+        try:
+            keep = Video.objects.get(id=keep_id)
+        except (Video.DoesNotExist, ValueError, TypeError):
+            return Response({"error": "keep must be the id of another video."}, status=400)
+        if keep.id == duplicate.id:
+            return Response({"error": "A video can't be marked a duplicate of itself."}, status=400)
+        try:
+            mark_duplicate(keep, duplicate)
+        except SceneStillEncoding as exc:
+            return Response({"error": str(exc)}, status=400)
+        return Response(VideoSerializer(duplicate).data)
+
+    @action(detail=True, methods=["post"])
+    def unmark_duplicate(self, request, pk=None):
+        video = self.get_object()
+        if not video.duplicate_of_id:
+            return Response({"error": "Not marked as a duplicate."}, status=400)
+        unmark_duplicate(video)
+        return Response(VideoSerializer(video).data)
 
 
 class SceneBoundaryViewSet(

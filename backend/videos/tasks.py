@@ -45,7 +45,7 @@ def queue_pending_videos() -> int:
     requiring a manual Reprocess/"Process all" click, which was the whole
     point (see MAX_AUTO_DETECTION_RETRIES above for why it's capped)."""
     queued = 0
-    for video in Video.objects.filter(status=Video.Status.PENDING):
+    for video in Video.objects.filter(status=Video.Status.PENDING, duplicate_of__isnull=True):
         failed_count = DetectionRun.objects.filter(video=video, status=DetectionRun.Status.FAILED).count()
         if failed_count >= MAX_AUTO_DETECTION_RETRIES:
             continue

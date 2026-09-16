@@ -433,3 +433,50 @@ def test_task_queue_endpoint_lists_running_and_queued_work():
     assert response.status_code == 200
     assert [r["status"] for r in response.data["detection"]] == ["running", "queued"]
     assert [s["status"] for s in response.data["encoding"]] == ["encoding", "queued"]
+
+
+def test_mark_duplicate_endpoint():
+    user = get_user_model().objects.create_user(username="benjamin22", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    keep = Video.objects.create(path="/videos/keep22.mp4")
+    duplicate = Video.objects.create(path="/videos/dup22.mp4")
+
+    response = client.post(f"/api/videos/{duplicate.id}/mark_duplicate/", {"keep": keep.id}, format="json")
+    assert response.status_code == 200
+    duplicate.refresh_from_db()
+    assert duplicate.duplicate_of_id == keep.id
+    assert duplicate.marked_done is True
+
+
+def test_mark_duplicate_endpoint_rejects_self_and_missing_keep():
+    user = get_user_model().objects.create_user(username="benjamin23", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape23.mp4")
+
+    response = client.post(f"/api/videos/{video.id}/mark_duplicate/", {"keep": video.id}, format="json")
+    assert response.status_code == 400
+
+    response = client.post(f"/api/videos/{video.id}/mark_duplicate/", {"keep": 999999}, format="json")
+    assert response.status_code == 400
+
+
+def test_unmark_duplicate_endpoint():
+    user = get_user_model().objects.create_user(username="benjamin24", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    keep = Video.objects.create(path="/videos/keep24.mp4")
+    duplicate = Video.objects.create(path="/videos/dup24.mp4", duplicate_of=keep, marked_done=True)
+
+    response = client.post(f"/api/videos/{duplicate.id}/unmark_duplicate/")
+    assert response.status_code == 200
+    duplicate.refresh_from_db()
+    assert duplicate.duplicate_of_id is None
+    assert duplicate.marked_done is False
+
+    response = client.post(f"/api/videos/{duplicate.id}/unmark_duplicate/")
+    assert response.status_code == 400  # already not a duplicate

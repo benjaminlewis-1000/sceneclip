@@ -26,6 +26,15 @@ class Video(models.Model):
     # marker on the library page, independent of and reversible regardless of
     # `status` (re-processing or re-exporting a marked-done video is fine).
     marked_done = models.BooleanField(default=False)
+    # Set when this video has been identified as a re-digitized/duplicate
+    # capture of another Video already in the library (see
+    # services/duplicates.py) -- the losing copy's encoded clips get
+    # deleted from disk to reclaim space, but the Video/DetectionRun/
+    # SceneBoundary/Scene rows themselves are kept, not deleted, so the
+    # decision and its history stay visible and reversible.
+    duplicate_of = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="duplicates"
+    )
     # 0-100, set by export_video_task as it works through each scene's
     # ffmpeg cut; null when no export is in flight.
     export_progress_percent = models.IntegerField(null=True, blank=True)

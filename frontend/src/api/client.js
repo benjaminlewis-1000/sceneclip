@@ -75,6 +75,12 @@ export const api = {
     request(`/api/videos/browse/?path=${encodeURIComponent(path)}`),
   setVideoDone: (id, done) =>
     request(`/api/videos/${id}/`, { method: "PATCH", body: JSON.stringify({ marked_done: done }) }),
+  markDuplicate: (duplicateId, keepId) =>
+    request(`/api/videos/${duplicateId}/mark_duplicate/`, {
+      method: "POST",
+      body: JSON.stringify({ keep: keepId }),
+    }),
+  unmarkDuplicate: (id) => request(`/api/videos/${id}/unmark_duplicate/`, { method: "POST" }),
   detectVideo: (id, params, saveAsOverride) =>
     request(`/api/videos/${id}/detect/`, {
       method: "POST",

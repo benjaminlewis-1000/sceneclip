@@ -398,3 +398,29 @@ button.active {
   width: 100%;
   text-align: left;
 }
+
+.duplicate-columns {
+  display: flex;
+  gap: 1rem;
+  margin-top: 1rem;
+  flex-wrap: wrap;
+}
+
+.duplicate-picker-column,
+.duplicate-card {
+  flex: 1 1 320px;
+  min-width: 280px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.duplicate-picker-column select {
+  width: 100%;
+}
+
+.duplicate-card {
+  background: #1c1f28;
+  border-radius: 6px;
+  padding: 0.75rem;
+}

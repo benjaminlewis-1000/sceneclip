@@ -76,6 +76,15 @@ export default function VideoList() {
     refresh();
   };
 
+  const undoDuplicate = async (video) => {
+    const proceed = window.confirm(
+      "Undo the duplicate marking? Scenes that had their clip deleted will start re-encoding."
+    );
+    if (!proceed) return;
+    await api.unmarkDuplicate(video.id);
+    refresh();
+  };
+
   const addVideo = async (path) => {
     await api.createVideo(path);
     setBrowserOpen(false);
@@ -86,11 +95,11 @@ export default function VideoList() {
   // already mid-detection, under review, or exported are left alone so
   // this can't clobber in-progress work.
   const processAll = async () => {
-    const targets = videos.filter((v) => v.status === "pending");
+    const targets = videos.filter((v) => v.status === "pending" && !v.duplicate_of);
     await Promise.all(targets.map((v) => api.detectVideo(v.id, v.detection_params_override || undefined)));
     refresh();
   };
-  const pendingCount = videos.filter((v) => v.status === "pending").length;
+  const pendingCount = videos.filter((v) => v.status === "pending" && !v.duplicate_of).length;
 
   const sortedVideos = [...videos].sort((a, b) => {
     if (a.marked_done !== b.marked_done) return a.marked_done ? 1 : -1;
@@ -148,6 +157,7 @@ export default function VideoList() {
             video={v}
             onReprocess={() => reprocess(v)}
             onToggleDone={() => toggleDone(v)}
+            onUndoDuplicate={() => undoDuplicate(v)}
           />
         ))}
         {videos.length === 0 && !syncing && (
@@ -159,7 +169,7 @@ export default function VideoList() {
   );
 }
 
-function VideoCard({ video, onReprocess, onToggleDone }) {
+function VideoCard({ video, onReprocess, onToggleDone, onUndoDuplicate }) {
   const inProgress = IN_PROGRESS_STATUSES.has(video.status);
   // duration_seconds is set by the same background task that generates the
   // thumbnail (see tasks.py:generate_video_metadata_task) -- using it as
@@ -183,7 +193,11 @@ function VideoCard({ video, onReprocess, onToggleDone }) {
         <div className="video-card-info">
           <Link to={`/videos/${video.id}`}>{video.path}</Link>
           <span className="video-status">
-            {video.marked_done ? "Done" : video.status}
+            {video.duplicate_of_path
+              ? `Duplicate of ${video.duplicate_of_path}`
+              : video.marked_done
+              ? "Done"
+              : video.status}
             {video.duration_seconds != null && ` · ${formatDuration(video.duration_seconds)}`}
           </span>
         </div>
@@ -244,6 +258,9 @@ function VideoCard({ video, onReprocess, onToggleDone }) {
         >
           {video.marked_done ? "Mark not done" : "Mark done"}
         </button>
+        {video.duplicate_of_path && (
+          <button onClick={onUndoDuplicate}>Undo duplicate marking</button>
+        )}
       </div>
     </div>
   );

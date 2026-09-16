@@ -42,6 +42,11 @@ class VideoSerializer(serializers.ModelSerializer):
     # human-verified. False (not just unset) for a video with no scenes at
     # all yet, so a never-detected video can't be marked done trivially.
     ready_to_mark_done = serializers.SerializerMethodField()
+    # Path of the video this one was marked a duplicate of, for display --
+    # duplicate_of itself only changes through the mark_duplicate/
+    # unmark_duplicate actions (they also handle deleting/re-encoding the
+    # clip files), never a plain PATCH.
+    duplicate_of_path = serializers.CharField(source="duplicate_of.path", read_only=True, default=None)
 
     class Meta:
         model = Video
@@ -50,11 +55,12 @@ class VideoSerializer(serializers.ModelSerializer):
             "export_progress_percent", "detection_progress_percent",
             "detection_run_status", "detection_exhausted", "last_detection_error",
             "has_boundaries", "has_approved_boundaries", "ready_to_mark_done",
+            "duplicate_of", "duplicate_of_path",
             "detection_params_override", "created_at", "updated_at",
         ]
         read_only_fields = [
             "duration_seconds", "status", "export_progress_percent",
-            "created_at", "updated_at",
+            "duplicate_of", "created_at", "updated_at",
         ]
 
     def _latest_run(self, obj):
