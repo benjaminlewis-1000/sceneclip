@@ -10,3 +10,11 @@ whitenoise==6.8.2
 gunicorn==23.0.0
 scenedetect[opencv]==0.6.4
 opencv-python-headless==4.10.0.84
+# PySceneDetect's default OpenCV backend silently produces zero frames (no
+# exception, no scenes found, DetectionRun reports "done") on interlaced
+# MPEG-1/2 source (.mpg captures) -- its bundled ffmpeg/swscale fails to
+# convert interlaced->progressive frames and OpenCV's VideoCapture doesn't
+# surface that failure. PyAV decodes through the same ffmpeg/libav stack
+# the rest of this app already uses for everything else, and handles this
+# content correctly -- see services/detection.py.
+av==18.1.0

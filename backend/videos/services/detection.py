@@ -39,7 +39,16 @@ def run_detection(
         "min_scene_len_seconds", DEFAULT_PARAMS["min_scene_len_seconds"]
     )
 
-    video = open_video(video_path)
+    # PyAV, not the default OpenCV backend -- OpenCV's VideoCapture silently
+    # produces zero usable frames on interlaced MPEG-1/2 source (old .mpg
+    # captures): its bundled ffmpeg/swscale fails to convert
+    # interlaced->progressive and that failure never surfaces as an
+    # exception, so detection "succeeds" having read nothing and reports
+    # zero candidate boundaries. PyAV decodes through the same ffmpeg/libav
+    # stack the rest of this app already uses (services/export.py etc.) and
+    # handles this content correctly. open_video() falls back to OpenCV on
+    # its own if PyAV isn't available, so this is safe either way.
+    video = open_video(video_path, backend="pyav")
     min_scene_len_frames = max(1, int(min_scene_len_seconds * video.frame_rate))
 
     if detector_name == "content":
