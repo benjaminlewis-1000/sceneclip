@@ -6,7 +6,12 @@ from unittest import mock
 import pytest
 
 from videos.models import DetectionRun, Scene, SceneBoundary, Video
-from videos.tasks import generate_video_metadata_task, run_detection_task, trigger_auto_encode
+from videos.tasks import (
+    export_scene_task,
+    generate_video_metadata_task,
+    run_detection_task,
+    trigger_auto_encode,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -67,6 +72,52 @@ def test_run_detection_task_failure_reverts_to_reviewing_when_boundaries_exist()
 
     video.refresh_from_db()
     assert video.status == Video.Status.REVIEWING
+
+
+def test_run_detection_task_skips_a_redelivered_duplicate_of_a_running_run():
+    # Hit for real: a broker/connection hiccup caused Celery to redeliver
+    # an already-executing task, starting a second concurrent run against
+    # the same DetectionRun -- if the duplicate hadn't bailed out, it
+    # would have clobbered status back to RUNNING (or worse, raced to
+    # bulk_create duplicate SceneBoundary rows).
+    video = Video.objects.create(path="/videos/tape.mp4")
+    run = DetectionRun.objects.create(video=video, params={}, status=DetectionRun.Status.RUNNING)
+
+    run_detection_task(run.id)  # should return immediately, not raise
+
+    run.refresh_from_db()
+    assert run.status == DetectionRun.Status.RUNNING  # untouched by the duplicate
+
+
+def test_run_detection_task_skips_a_redelivered_duplicate_of_a_done_run():
+    video = Video.objects.create(path="/videos/tape.mp4", duration_seconds=60.0)
+    run = DetectionRun.objects.create(
+        video=video, params={}, status=DetectionRun.Status.DONE, progress_percent=100,
+    )
+    video.status = Video.Status.REVIEWING
+    video.save(update_fields=["status"])
+
+    run_detection_task(run.id)
+
+    run.refresh_from_db()
+    video.refresh_from_db()
+    assert run.status == DetectionRun.Status.DONE
+    assert video.status == Video.Status.REVIEWING  # not clobbered back to DETECTING
+
+
+def test_export_scene_task_skips_a_redelivered_duplicate_of_an_exported_scene():
+    video = Video.objects.create(path="/videos/tape.mp4", duration_seconds=60.0)
+    scene = Scene.objects.create(
+        video=video, start_seconds=0.0, end_seconds=30.0, scene_date="1994-01-01",
+        exported=True, exported_path="/output/already-done.mp4",
+    )
+
+    with mock.patch("videos.services.export.export_one_scene") as mock_export:
+        export_scene_task(scene.id)
+
+    mock_export.assert_not_called()
+    scene.refresh_from_db()
+    assert scene.exported_path == "/output/already-done.mp4"  # untouched
 
 
 def test_trigger_auto_encode_queues_closed_dated_scenes_only():

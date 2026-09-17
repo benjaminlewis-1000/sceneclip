@@ -198,6 +198,19 @@ def run_detection_task(self, run_id: int):
     run = DetectionRun.objects.select_related("video").get(id=run_id)
     video = run.video
 
+    # Guards against a redelivered duplicate of this exact task -- hit for
+    # real: a broker/connection hiccup caused Celery to redeliver an
+    # already-running (and in a couple of cases already-*finished*) task,
+    # which started a second concurrent execution. Two runs of the same
+    # video racing each other risks duplicate SceneBoundary rows outright;
+    # for an already-DONE run, blindly proceeding also clobbers its status
+    # back to RUNNING even if this duplicate gets killed before finishing
+    # (which is what actually happened -- caught and fixed by hand this
+    # time). QUEUED is the only state a fresh, legitimate execution should
+    # ever see this run in.
+    if run.status != DetectionRun.Status.QUEUED:
+        return
+
     run.status = DetectionRun.Status.RUNNING
     run.save(update_fields=["status"])
     video.status = Video.Status.DETECTING
@@ -268,6 +281,13 @@ def export_scene_task(self, scene_id: int):
 
     scene = Scene.objects.select_related("video").get(id=scene_id)
     video = scene.video
+    # Same redelivered-duplicate guard as run_detection_task -- if this
+    # scene is already exported, a fresh legitimate execution should never
+    # reach this task at all (encode/trigger_auto_encode both check
+    # exported=False before queuing), so this is a stale/duplicate
+    # delivery of an already-finished job.
+    if scene.exported:
+        return
     # export_progress_percent was already set to 0 when this was queued
     # (trigger_auto_encode / the manual `encode` action) -- encode_started_at
     # is what actually flips here, now that a worker has picked it up.

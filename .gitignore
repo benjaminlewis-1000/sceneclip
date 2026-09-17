@@ -5,3 +5,4 @@ backend/staticfiles/
 node_modules/
 frontend/dist/
 backend/celerybeat-schedule.db
+.claude/scheduled_tasks.lock
