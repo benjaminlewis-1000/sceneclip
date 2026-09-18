@@ -242,6 +242,8 @@ export default function ReviewQueue() {
         {peekBoundary.video_path} @ {formatTime(peekBoundary.timestamp_seconds)}
         {allBoundaries.length > 0 && `, Scene ${peekIndex + 1}/${allBoundaries.length}`}
         {isPeeking && ` -- previewing (${peekBoundary.review_status}), not the current boundary`}
+        {" -- "}
+        <Link to={`/videos/${peekBoundary.video}`}>Go to video</Link>
       </p>
       {allBoundaries.length > 0 && (
         <div className="peek-controls">

@@ -406,9 +406,17 @@ class SceneViewSet(viewsets.ModelViewSet):
     @action(detail=False, methods=["get"])
     def verify_queue(self, request):
         """Next encoded-but-unverified scene, for the auto-advancing Verify
-        queue view. Optional ?video= scopes to one video."""
-        qs = self.get_queryset().filter(exported=True, verified=False).order_by("video_id", "start_seconds")
-        scene = qs.first()
+        queue view. Optional ?video= scopes to one video. Optional
+        ?exclude=<comma-separated ids> skips scenes the reviewer has
+        already hit "Skip" on this session -- a session-only skip, not a
+        persisted verdict, so they're still reachable normally later (a
+        page reload clears it)."""
+        qs = self.get_queryset().filter(exported=True, verified=False)
+        exclude_param = request.query_params.get("exclude")
+        if exclude_param:
+            exclude_ids = [int(x) for x in exclude_param.split(",") if x.strip().isdigit()]
+            qs = qs.exclude(id__in=exclude_ids)
+        scene = qs.order_by("video_id", "start_seconds").first()
         return Response(SceneSerializer(scene).data if scene else None)
 
     @action(detail=True, methods=["post"])

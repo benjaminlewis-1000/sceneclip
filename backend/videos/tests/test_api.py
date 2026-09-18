@@ -367,6 +367,29 @@ def test_scene_verify_queue_returns_next_unverified_exported_scene():
     assert response.data["id"] == ready.id
 
 
+def test_scene_verify_queue_exclude_param_skips_session_skipped_scenes():
+    user = get_user_model().objects.create_user(username="benjamin25", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape25.mp4", duration_seconds=60.0)
+    first = Scene.objects.create(
+        video=video, start_seconds=0.0, end_seconds=30.0, exported=True, scene_date="1994-01-01"
+    )
+    second = Scene.objects.create(
+        video=video, start_seconds=30.0, end_seconds=60.0, exported=True, scene_date="1994-01-02"
+    )
+
+    response = client.get("/api/scenes/verify_queue/")
+    assert response.data["id"] == first.id
+
+    response = client.get(f"/api/scenes/verify_queue/?exclude={first.id}")
+    assert response.data["id"] == second.id
+
+    response = client.get(f"/api/scenes/verify_queue/?exclude={first.id},{second.id}")
+    assert response.data is None
+
+
 def test_undo_boundary_endpoint_reverts_and_rebuilds():
     user = get_user_model().objects.create_user(username="benjamin17", password="x")
     client = APIClient()

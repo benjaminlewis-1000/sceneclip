@@ -14,15 +14,20 @@ export default function VerifyQueue() {
   const [speed, setSpeed] = useState(1);
   const [description, setDescription] = useState("");
   const [date, setDate] = useState("");
+  // Session-only -- not persisted, just kept out of the query for the rest
+  // of this visit so "Skip" doesn't loop back to the same scene. A reload
+  // (or coming back later) clears it and it's reachable normally again.
+  const [skippedIds, setSkippedIds] = useState([]);
   const videoRef = useRef(null);
 
   const loadNext = useCallback(async () => {
     setScene(undefined);
-    const next = await api.nextVerifyQueueScene();
+    const next = await api.nextVerifyQueueScene(null, skippedIds);
     setScene(next);
     setDescription(next?.description || "");
     setDate(next?.scene_date || "");
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [skippedIds]);
 
   useEffect(() => {
     loadNext();
@@ -38,6 +43,11 @@ export default function VerifyQueue() {
     await api.updateScene(scene.id, { description, scene_date: date || null });
     await api.verifyScene(scene.id);
     loadNext();
+  };
+
+  const skip = () => {
+    if (!scene) return;
+    setSkippedIds((ids) => [...ids, scene.id]);
   };
 
   if (scene === undefined) {
@@ -68,6 +78,8 @@ export default function VerifyQueue() {
       <h1>Verify Queue</h1>
       <p className="boundary-meta">
         {scene.video_path} @ {formatTime(scene.start_seconds)}-{formatTime(scene.end_seconds)}
+        {" -- "}
+        <Link to={`/videos/${scene.video}`}>Go to video</Link>
       </p>
       <video
         ref={videoRef}
@@ -105,6 +117,7 @@ export default function VerifyQueue() {
       </div>
 
       <div className="review-actions">
+        <button onClick={skip}>Skip (this session only)</button>
         <button className="approve" onClick={markVerified}>
           Looks good -- Verify
         </button>

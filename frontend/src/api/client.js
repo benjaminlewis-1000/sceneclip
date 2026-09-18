@@ -113,8 +113,13 @@ export const api = {
   encodeScene: (id) => request(`/api/scenes/${id}/encode/`, { method: "POST" }),
   sceneClipUrl: (id) => `/api/scenes/${id}/clip/`,
   verifyScene: (id) => request(`/api/scenes/${id}/verify/`, { method: "POST" }),
-  nextVerifyQueueScene: (videoId) =>
-    request(`/api/scenes/verify_queue/${videoId ? `?video=${videoId}` : ""}`),
+  nextVerifyQueueScene: (videoId, excludeIds) => {
+    const params = new URLSearchParams();
+    if (videoId) params.set("video", videoId);
+    if (excludeIds && excludeIds.length) params.set("exclude", excludeIds.join(","));
+    const qs = params.toString();
+    return request(`/api/scenes/verify_queue/${qs ? `?${qs}` : ""}`);
+  },
 
   listNotifications: (since) =>
     request(`/api/notifications/${since ? `?since=${encodeURIComponent(since)}` : ""}`),
