@@ -1,8 +1,13 @@
-# One-off backfill: clips exported before export_one_scene started writing
-# a real creation_time (see services/export.py) don't have it. Remuxes
-# (stream-copy, no re-encode -- fast, lossless) each already-exported,
-# dated scene's file in place to add it, regardless of whether it's
-# already verified (in OUTPUT_ROOT) or still awaiting verification (in
+# One-off/rerunnable backfill: stamps every already-exported, dated
+# scene's file with the metadata (title/comment/description/date/
+# creation_time) matching its *current* DB fields -- covers clips exported
+# before export_one_scene wrote creation_time at all, and clips whose
+# description/date got edited after the original encode (export_one_scene
+# only runs once; finalize_scene re-stamps at verify time now, but that
+# doesn't retroactively fix a clip that was verified before that existed,
+# or edited again after). Remuxes (stream-copy, no re-encode -- fast,
+# lossless) in place, regardless of whether the clip is already verified
+# (in OUTPUT_ROOT) or still awaiting verification (in
 # TEMP_SCENE_CLIPS_DIR) -- exported_path points at wherever it actually is.
 import os
 import subprocess
@@ -10,11 +15,11 @@ import subprocess
 from django.core.management.base import BaseCommand
 
 from videos.models import Scene
-from videos.services.export import creation_time_for_date
+from videos.services.export import metadata_args_for_scene
 
 
 class Command(BaseCommand):
-    help = "Stamps real creation_time/date container metadata into already-exported clips that predate it."
+    help = "Re-stamps container metadata into already-exported clips to match their current DB fields."
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -39,12 +44,7 @@ class Command(BaseCommand):
                 continue
 
             tmp_path = path + ".remux.tmp.mp4"
-            cmd = [
-                "ffmpeg", "-y", "-i", path, "-c", "copy",
-                "-metadata", f"date={scene.scene_date.isoformat()}",
-                "-metadata", f"creation_time={creation_time_for_date(scene.scene_date)}",
-                tmp_path,
-            ]
+            cmd = ["ffmpeg", "-y", "-i", path, "-c", "copy", *metadata_args_for_scene(scene), tmp_path]
             try:
                 subprocess.run(cmd, check=True, capture_output=True)
             except subprocess.CalledProcessError as exc:

@@ -130,6 +130,14 @@ def test_finalize_scene_moves_clip_to_output_root_and_verifies(tmp_path):
     temp_path = scene.exported_path
     assert os.path.exists(temp_path)
 
+    # A correction made after the initial encode but before verify -- the
+    # whole point of finalize_scene re-stamping metadata, not just moving
+    # the file: the encoded clip's baked-in metadata still says the old
+    # values at this point.
+    scene.description = "Corrected description"
+    scene.scene_date = datetime.date(1994, 7, 4)
+    scene.save(update_fields=["description", "scene_date"])
+
     with override_settings(OUTPUT_ROOT=str(out_dir)):
         final_path = finalize_scene(scene)
 
@@ -140,3 +148,11 @@ def test_finalize_scene_moves_clip_to_output_root_and_verifies(tmp_path):
     assert os.path.exists(final_path)
     assert str(out_dir) in final_path
     assert os.path.basename(final_path) == os.path.basename(temp_path)
+
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-of", "json", "-show_entries", "format_tags=title,date", final_path],
+        capture_output=True, text=True, check=True,
+    )
+    tags = json.loads(probe.stdout)["format"]["tags"]
+    assert tags["title"] == "Corrected description"
+    assert tags["date"] == "1994-07-04"

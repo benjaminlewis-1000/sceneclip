@@ -2,6 +2,7 @@
 # DEFAULT_PERMISSION_CLASSES=[IsAuthenticated] in settings.py), and the
 # review/adjust endpoints behave as documented.
 import os
+import subprocess
 from unittest import mock
 
 import pytest
@@ -322,10 +323,17 @@ def test_scene_verify_requires_encoded_and_dated(tmp_path):
     response = client.post(f"/api/scenes/{scene.id}/verify/")
     assert response.status_code == 400  # not exported yet
 
-    # verify() moves the file (finalize_scene), so it needs a real one to
-    # move -- mirrors what an actual encode leaves behind.
+    # verify() remuxes the file (finalize_scene re-stamps metadata via
+    # ffmpeg), so it needs a real playable file, not placeholder bytes.
     clip_path = tmp_path / "clip.mp4"
-    clip_path.write_bytes(b"fake mp4 data")
+    subprocess.run(
+        [
+            "ffmpeg", "-y", "-f", "lavfi", "-i", "testsrc=duration=1:size=64x64:rate=10",
+            "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+            str(clip_path),
+        ],
+        check=True, capture_output=True,
+    )
     scene.exported = True
     scene.exported_path = str(clip_path)
     scene.save(update_fields=["exported", "exported_path"])

@@ -9,11 +9,11 @@
 2. finalize_scene() moves an already-encoded, human-verified clip from
    there into settings.OUTPUT_ROOT -- called by the `verify` action, so
    OUTPUT_ROOT only ever holds clips someone's actually confirmed are
-   right.
+   right. Also re-stamps metadata from the scene's current description/
+   date (editable right up until verify) via a stream-copy remux.
 """
 import datetime
 import os
-import shutil
 import subprocess
 import time
 from typing import Callable, Optional
@@ -98,15 +98,12 @@ def _scene_output_filename(scene) -> str:
     return f"{date_prefix}_scene_{idx:03d}.mp4"
 
 
-def export_one_scene(scene, on_progress: Optional[Callable[[float], None]] = None) -> str:
-    """Cuts one Scene out of its source video, writes description/date in
-    as container metadata, and marks it exported. `on_progress` receives a
-    0.0-1.0 fraction through this scene's own encode."""
+def metadata_args_for_scene(scene) -> list[str]:
+    """The -metadata args reflecting a scene's *current* description/date --
+    shared by export_one_scene (baked in at initial encode) and
+    finalize_scene (re-stamped at verify time, since these fields stay
+    editable right up until then)."""
     video = scene.video
-    out_dir = _temp_dir_for(video)
-    out_path = os.path.join(out_dir, _scene_output_filename(scene))
-    duration = scene.end_seconds - scene.start_seconds
-
     metadata_args = []
     if scene.description:
         # Both tags: `title` is what most players/OS file browsers show as
@@ -138,6 +135,18 @@ def export_one_scene(scene, on_progress: Optional[Callable[[float], None]] = Non
         f"description=Source: {os.path.basename(video.path)} "
         f"[{scene.start_seconds:.3f}s - {scene.end_seconds:.3f}s]",
     ]
+    return metadata_args
+
+
+def export_one_scene(scene, on_progress: Optional[Callable[[float], None]] = None) -> str:
+    """Cuts one Scene out of its source video, writes description/date in
+    as container metadata, and marks it exported. `on_progress` receives a
+    0.0-1.0 fraction through this scene's own encode."""
+    video = scene.video
+    out_dir = _temp_dir_for(video)
+    out_path = os.path.join(out_dir, _scene_output_filename(scene))
+    duration = scene.end_seconds - scene.start_seconds
+    metadata_args = metadata_args_for_scene(scene)
 
     tmp_path = out_path + ".tmp.mp4"
     cmd = [
@@ -166,13 +175,25 @@ def export_one_scene(scene, on_progress: Optional[Callable[[float], None]] = Non
 def finalize_scene(scene) -> str:
     """Moves an encoded scene's clip from TEMP_SCENE_CLIPS_DIR into
     OUTPUT_ROOT and marks it verified -- called by the `verify` action once
-    a human has actually watched it and confirmed it's right. shutil.move
-    rather than os.rename since the temp dir (under VIDEO_ROOT) and
-    OUTPUT_ROOT are typically separate mounts/filesystems, and os.rename
-    can't cross that boundary."""
+    a human has actually watched it and confirmed it's right.
+
+    Re-stamps the container metadata from the scene's *current*
+    description/date while doing so, via a stream-copy remux (no
+    re-encode -- fast, lossless) rather than a plain move: both fields stay
+    editable right up until the verify click (see VerifyQueue.jsx), but
+    they were only baked into the file once, back when it was first
+    auto-encoded -- without this, a last-minute correction at verify time
+    would update the DB but never actually reach the file.
+    """
     out_dir = _output_dir_for(scene.video)
     final_path = os.path.join(out_dir, os.path.basename(scene.exported_path))
-    shutil.move(scene.exported_path, final_path)
+    cmd = [
+        "ffmpeg", "-y", "-i", scene.exported_path, "-c", "copy",
+        *metadata_args_for_scene(scene),
+        final_path,
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)
+    os.remove(scene.exported_path)
 
     scene.exported_path = final_path
     scene.verified = True
