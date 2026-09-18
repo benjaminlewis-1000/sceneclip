@@ -118,7 +118,9 @@ export default function VideoDetail() {
     <div>
       <BackButton />
       <h1>{video.path}</h1>
-      <p>Status: {video.status}</p>
+      <p>
+        Status: {video.status} -- <Link to={`/review?video=${videoId}`}>Go to review</Link>
+      </p>
       {video.detection_exhausted && (
         <p className="video-stuck" title={video.last_detection_error || undefined}>
           Stuck -- detection failed repeatedly and won't auto-retry again. Click "Run detection"
