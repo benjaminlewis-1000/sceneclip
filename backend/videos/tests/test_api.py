@@ -367,6 +367,27 @@ def test_scene_verify_queue_returns_next_unverified_exported_scene():
     assert response.data["id"] == ready.id
 
 
+def test_verify_summary_lists_videos_with_unverified_scenes():
+    user = get_user_model().objects.create_user(username="benjamin26", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video_a = Video.objects.create(path="/videos/a.mp4", duration_seconds=60.0)
+    video_b = Video.objects.create(path="/videos/b.mp4", duration_seconds=60.0)
+    Scene.objects.create(video=video_a, start_seconds=0.0, end_seconds=10.0, exported=True)
+    Scene.objects.create(video=video_a, start_seconds=10.0, end_seconds=20.0, exported=True)
+    Scene.objects.create(video=video_b, start_seconds=0.0, end_seconds=10.0, exported=True)
+    Scene.objects.create(  # already verified -- excluded
+        video=video_b, start_seconds=10.0, end_seconds=20.0, exported=True, verified=True,
+    )
+    Scene.objects.create(video=video_b, start_seconds=20.0, end_seconds=30.0)  # not exported -- excluded
+
+    response = client.get("/api/scenes/verify_summary/")
+    assert response.status_code == 200
+    by_video = {row["video_path"]: row["count"] for row in response.data}
+    assert by_video == {"/videos/a.mp4": 2, "/videos/b.mp4": 1}
+
+
 def test_scene_verify_queue_exclude_param_skips_session_skipped_scenes():
     user = get_user_model().objects.create_user(username="benjamin25", password="x")
     client = APIClient()
@@ -424,7 +445,7 @@ def test_undo_boundary_endpoint_rejects_already_pending():
     assert response.status_code == 400
 
 
-def test_undo_boundary_endpoint_blocks_while_encoding():
+def test_undo_boundary_endpoint_cancels_encode_instead_of_blocking():
     user = get_user_model().objects.create_user(username="benjamin19", password="x")
     client = APIClient()
     client.force_authenticate(user=user)
@@ -438,12 +459,15 @@ def test_undo_boundary_endpoint_blocks_while_encoding():
     rebuild_scenes(video)
     scene = video.scenes.get(start_seconds=0.0)
     scene.export_progress_percent = 10
-    scene.save(update_fields=["export_progress_percent"])
+    scene.encode_task_id = "fake-task-id"
+    scene.save(update_fields=["export_progress_percent", "encode_task_id"])
 
-    response = client.post(f"/api/boundaries/{boundary.id}/undo/")
-    assert response.status_code == 400
+    with mock.patch("config.celery.app.control.revoke") as mock_revoke:
+        response = client.post(f"/api/boundaries/{boundary.id}/undo/")
+    assert response.status_code == 200
+    mock_revoke.assert_called_once_with("fake-task-id", terminate=True, signal="SIGKILL")
     boundary.refresh_from_db()
-    assert boundary.review_status == SceneBoundary.ReviewStatus.APPROVED
+    assert boundary.review_status == SceneBoundary.ReviewStatus.PENDING
 
 
 def test_task_queue_endpoint_lists_running_and_queued_work():

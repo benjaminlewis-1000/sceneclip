@@ -140,6 +140,7 @@ def test_trigger_auto_encode_queues_closed_dated_scenes_only():
     )
 
     with mock.patch("videos.tasks.export_scene_task.delay") as mock_delay:
+        mock_delay.return_value.id = "fake-task-id"
         trigger_auto_encode(video)
 
     mock_delay.assert_called_once_with(closed_dated.id)

@@ -3,11 +3,12 @@
 # fields on an unchanged segment survive a rebuild, and an already-exported
 # scene is never silently deleted even if its boundaries later change.
 import os
+from unittest import mock
 
 import pytest
 
 from videos.models import DetectionRun, SceneBoundary, Video
-from videos.services.scenes import SceneStillEncoding, rebuild_scenes, undo_boundary_review
+from videos.services.scenes import rebuild_scenes, undo_boundary_review
 
 pytestmark = pytest.mark.django_db
 
@@ -184,7 +185,11 @@ def test_undo_boundary_review_deletes_encoded_file_on_disk(tmp_path):
     assert merged.verified is False
 
 
-def test_undo_boundary_review_blocks_while_bordering_scene_is_encoding():
+def test_undo_boundary_review_cancels_a_bordering_scene_mid_encode():
+    # Undoing shouldn't block on an in-progress encode -- that encode's
+    # target span is already obsolete the moment the boundary's undone, so
+    # there's nothing to gain from waiting for it. Cancels the tracked
+    # Celery task (best-effort) and proceeds immediately.
     video = Video.objects.create(path="/videos/tape.mp4", duration_seconds=90.0)
     run = _run(video)
     boundary = SceneBoundary.objects.create(
@@ -193,10 +198,15 @@ def test_undo_boundary_review_blocks_while_bordering_scene_is_encoding():
     rebuild_scenes(video)
     scene = video.scenes.get(start_seconds=0.0)
     scene.export_progress_percent = 42
-    scene.save(update_fields=["export_progress_percent"])
+    scene.encode_task_id = "fake-task-id"
+    scene.save(update_fields=["export_progress_percent", "encode_task_id"])
 
-    with pytest.raises(SceneStillEncoding):
+    with mock.patch("config.celery.app.control.revoke") as mock_revoke:
         undo_boundary_review(boundary)
 
+    mock_revoke.assert_called_once_with("fake-task-id", terminate=True, signal="SIGKILL")
     boundary.refresh_from_db()
-    assert boundary.review_status == SceneBoundary.ReviewStatus.APPROVED  # unchanged
+    assert boundary.review_status == SceneBoundary.ReviewStatus.PENDING
+    merged = video.scenes.get(start_seconds=0.0)
+    assert merged.export_progress_percent is None
+    assert merged.encode_task_id == ""

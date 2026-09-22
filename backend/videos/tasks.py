@@ -124,7 +124,8 @@ def sweep_orphaned_work(only_unconditional: bool = False) -> dict:
     for scene in scenes:
         scene.export_progress_percent = None
         scene.encode_started_at = None
-        scene.save(update_fields=["export_progress_percent", "encode_started_at"])
+        scene.encode_task_id = ""
+        scene.save(update_fields=["export_progress_percent", "encode_started_at", "encode_task_id"])
 
         Notification.objects.create(
             video=scene.video,
@@ -160,7 +161,8 @@ def trigger_auto_encode(video) -> None:
     for scene in scenes_ready_to_encode(video):
         scene.export_progress_percent = 0
         scene.save(update_fields=["export_progress_percent"])
-        export_scene_task.delay(scene.id)
+        result = export_scene_task.delay(scene.id)
+        Scene.objects.filter(id=scene.id).update(encode_task_id=result.id)
 
 
 @shared_task
@@ -306,7 +308,9 @@ def export_scene_task(self, scene_id: int):
             message=f"Encoded scene {scene.start_seconds:.0f}s-{scene.end_seconds:.0f}s for {video.path}.",
         )
     except Exception as exc:
-        Scene.objects.filter(id=scene.id).update(export_progress_percent=None, encode_started_at=None)
+        Scene.objects.filter(id=scene.id).update(
+            export_progress_percent=None, encode_started_at=None, encode_task_id=""
+        )
         Notification.objects.create(
             video=video,
             kind=Notification.Kind.EXPORT_FAILED,

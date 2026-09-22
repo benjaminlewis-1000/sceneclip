@@ -158,6 +158,12 @@ class Scene(models.Model):
     # "actively encoding" the same way DetectionRun.status does for
     # detection, without needing to poll Celery itself.
     encode_started_at = models.DateTimeField(null=True, blank=True)
+    # Celery task id of the in-flight (or most recent) encode -- lets
+    # undo_boundary_review actively cancel a still-running encode instead
+    # of blocking until it finishes: once a boundary's being undone, that
+    # encode's target span is already obsolete, so there's no reason to
+    # wait for it.
+    encode_task_id = models.CharField(max_length=64, blank=True, default="")
     # A human "I watched the final encoded clip and it's right" checkpoint,
     # separate from boundary review -- set via the Verify queue.
     verified = models.BooleanField(default=False)

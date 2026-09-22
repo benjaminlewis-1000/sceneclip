@@ -168,7 +168,13 @@ def export_one_scene(scene, on_progress: Optional[Callable[[float], None]] = Non
     scene.exported_path = out_path
     scene.export_progress_percent = None
     scene.encode_started_at = None
-    scene.save(update_fields=["exported", "exported_path", "export_progress_percent", "encode_started_at"])
+    scene.encode_task_id = ""
+    scene.save(
+        update_fields=[
+            "exported", "exported_path", "export_progress_percent",
+            "encode_started_at", "encode_task_id",
+        ]
+    )
     return out_path
 
 

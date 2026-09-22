@@ -92,8 +92,8 @@ export default function VideoDetail() {
   const undoBoundary = async (boundaryId) => {
     if (!boundaryId) return;
     const proceed = window.confirm(
-      "Undo this boundary? Any already-encoded clip bordering it will be deleted and re-merged " +
-        "into a single scene for re-review."
+      "Undo this boundary? Any already-encoded clip bordering it will be deleted (an in-progress " +
+        "encode is cancelled) and re-merged into a single scene for re-review."
     );
     if (!proceed) return;
     try {
@@ -247,14 +247,14 @@ export default function VideoDetail() {
                   </button>
                   <button
                     onClick={() => undoBoundary(s.start_boundary)}
-                    disabled={!s.start_boundary || encoding}
+                    disabled={!s.start_boundary}
                     title={!s.start_boundary ? "This scene starts at the beginning of the video" : undefined}
                   >
                     Undo start
                   </button>
                   <button
                     onClick={() => undoBoundary(s.end_boundary)}
-                    disabled={!s.end_boundary || encoding}
+                    disabled={!s.end_boundary}
                     title={!s.end_boundary ? "This scene is still open (no end cut yet)" : undefined}
                   >
                     Undo end

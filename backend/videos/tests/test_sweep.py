@@ -108,6 +108,7 @@ def test_sweep_resets_and_requeues_orphaned_scene_encode():
 
     with mock.patch("videos.tasks.export_scene_task.delay") as mock_delay, \
             mock.patch("videos.tasks.run_detection_task.delay"):
+        mock_delay.return_value.id = "fake-task-id"
         swept = sweep_orphaned_work(only_unconditional=True)
 
     assert swept["scenes"] == 1

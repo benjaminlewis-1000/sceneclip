@@ -1,6 +1,6 @@
 # DRF viewsets for the whole API surface: videos, their detection runs and
 # proposed boundaries, the derived scenes, and polled notifications.
-from django.db.models import Exists, OuterRef
+from django.db.models import Count, Exists, OuterRef
 from django.utils import timezone
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
@@ -351,10 +351,7 @@ class SceneBoundaryViewSet(
         boundary = self.get_object()
         if boundary.review_status == SceneBoundary.ReviewStatus.PENDING:
             return Response({"error": "Already pending."}, status=400)
-        try:
-            undo_boundary_review(boundary)
-        except SceneStillEncoding as exc:
-            return Response({"error": str(exc)}, status=400)
+        undo_boundary_review(boundary)
         boundary.refresh_from_db()
         return Response(SceneBoundarySerializer(boundary).data)
 
@@ -390,7 +387,8 @@ class SceneViewSet(viewsets.ModelViewSet):
 
         scene.export_progress_percent = 0
         scene.save(update_fields=["export_progress_percent"])
-        export_scene_task.delay(scene.id)
+        result = export_scene_task.delay(scene.id)
+        Scene.objects.filter(id=scene.id).update(encode_task_id=result.id)
         return Response(SceneSerializer(scene).data, status=status.HTTP_202_ACCEPTED)
 
     @action(detail=True, methods=["get"])
@@ -402,6 +400,22 @@ class SceneViewSet(viewsets.ModelViewSet):
         if not scene.exported or not scene.exported_path:
             return Response({"error": "Not encoded yet."}, status=404)
         return serve_file_with_range(request, scene.exported_path)
+
+    @action(detail=False, methods=["get"])
+    def verify_summary(self, request):
+        """One row per source video that still has unverified encoded
+        scenes -- backs the Verify page's "videos to check" list, so you
+        can jump straight to a specific video instead of only ever seeing
+        the single global next-up scene."""
+        rows = (
+            Scene.objects.filter(exported=True, verified=False)
+            .values("video_id", "video__path")
+            .annotate(count=Count("id"))
+            .order_by("video__path")
+        )
+        return Response(
+            [{"video_id": r["video_id"], "video_path": r["video__path"], "count": r["count"]} for r in rows]
+        )
 
     @action(detail=False, methods=["get"])
     def verify_queue(self, request):

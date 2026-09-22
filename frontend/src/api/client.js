@@ -113,6 +113,7 @@ export const api = {
   encodeScene: (id) => request(`/api/scenes/${id}/encode/`, { method: "POST" }),
   sceneClipUrl: (id) => `/api/scenes/${id}/clip/`,
   verifyScene: (id) => request(`/api/scenes/${id}/verify/`, { method: "POST" }),
+  verifySummary: () => request("/api/scenes/verify_summary/"),
   nextVerifyQueueScene: (videoId, excludeIds) => {
     const params = new URLSearchParams();
     if (videoId) params.set("video", videoId);

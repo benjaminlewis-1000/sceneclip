@@ -1,15 +1,18 @@
 // Auto-advancing queue over encoded-but-unverified scenes -- the final
 // checkpoint after boundary review and encoding: watch the actual encoded
 // clip, confirm (or fix) its description/date, mark it verified, move on.
-// Mirrors ReviewQueue's structure.
+// Mirrors ReviewQueue's structure, including optional ?video= scoping.
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client.js";
 import BackButton from "../components/BackButton.jsx";
 
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 5, 8, 10];
 
 export default function VerifyQueue() {
+  const [searchParams] = useSearchParams();
+  const scopedVideoId = searchParams.get("video");
+
   const [scene, setScene] = useState(undefined); // undefined = loading, null = empty queue
   const [speed, setSpeed] = useState(1);
   const [description, setDescription] = useState("");
@@ -18,19 +21,26 @@ export default function VerifyQueue() {
   // of this visit so "Skip" doesn't loop back to the same scene. A reload
   // (or coming back later) clears it and it's reachable normally again.
   const [skippedIds, setSkippedIds] = useState([]);
+  // Every source video that still has something to verify, with a count --
+  // lets you jump straight to a specific video instead of only ever seeing
+  // the single global next-up scene.
+  const [summary, setSummary] = useState([]);
   const videoRef = useRef(null);
+
+  const refreshSummary = () => api.verifySummary().then(setSummary);
 
   const loadNext = useCallback(async () => {
     setScene(undefined);
-    const next = await api.nextVerifyQueueScene(null, skippedIds);
+    const next = await api.nextVerifyQueueScene(scopedVideoId, skippedIds);
     setScene(next);
     setDescription(next?.description || "");
     setDate(next?.scene_date || "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [skippedIds]);
+  }, [scopedVideoId, skippedIds]);
 
   useEffect(() => {
     loadNext();
+    refreshSummary();
   }, [loadNext]);
 
   useEffect(() => {
@@ -43,12 +53,33 @@ export default function VerifyQueue() {
     await api.updateScene(scene.id, { description, scene_date: date || null });
     await api.verifyScene(scene.id);
     loadNext();
+    refreshSummary();
   };
 
   const skip = () => {
     if (!scene) return;
     setSkippedIds((ids) => [...ids, scene.id]);
   };
+
+  const videoList = summary.length > 0 && (
+    <div className="boundary-log">
+      <h2>Videos with clips to verify</h2>
+      <ul>
+        {!scopedVideoId ? null : (
+          <li>
+            <Link to="/verify">-- All videos --</Link>
+          </li>
+        )}
+        {summary.map((row) => (
+          <li key={row.video_id}>
+            <Link to={`/verify?video=${row.video_id}`}>
+              {row.video_path} ({row.count})
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 
   if (scene === undefined) {
     return (
@@ -63,11 +94,14 @@ export default function VerifyQueue() {
     return (
       <div>
         <BackButton />
-        <h1>Nothing to verify</h1>
+        <h1>{scopedVideoId ? "Verify Queue (this video)" : "Verify Queue"}</h1>
         <p>
-          Every encoded scene has been verified, or nothing's been encoded yet. Scenes encode
-          automatically once dated during <Link to="/review">boundary review</Link>.
+          {scopedVideoId
+            ? "Nothing left to verify for this video."
+            : "Every encoded scene has been verified, or nothing's been encoded yet."}{" "}
+          Scenes encode automatically once dated during <Link to="/review">boundary review</Link>.
         </p>
+        {videoList}
       </div>
     );
   }
@@ -75,7 +109,7 @@ export default function VerifyQueue() {
   return (
     <div className="review-queue">
       <BackButton />
-      <h1>Verify Queue</h1>
+      <h1>{scopedVideoId ? "Verify Queue (this video)" : "Verify Queue"}</h1>
       <p className="boundary-meta">
         {scene.video_path} @ {formatTime(scene.start_seconds)}-{formatTime(scene.end_seconds)}
         {" -- "}
@@ -122,6 +156,8 @@ export default function VerifyQueue() {
           Looks good -- Verify
         </button>
       </div>
+
+      {videoList}
     </div>
   );
 }

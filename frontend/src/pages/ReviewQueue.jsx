@@ -1,6 +1,5 @@
 // Primary review UX: shows one candidate boundary's preview clip at a time
-// and auto-advances to the next pending one after a hotkey decision. This
-// is the "queue" mode from the plan; TileGrid.jsx is the grid-view backup.
+// and auto-advances to the next pending one after a hotkey decision.
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client.js";

@@ -5,7 +5,6 @@ import { NavLink, Route, Routes } from "react-router-dom";
 import { api } from "./api/client.js";
 import ReviewQueue from "./pages/ReviewQueue.jsx";
 import VerifyQueue from "./pages/VerifyQueue.jsx";
-import TileGrid from "./pages/TileGrid.jsx";
 import VideoList from "./pages/VideoList.jsx";
 import VideoDetail from "./pages/VideoDetail.jsx";
 import NotificationsTab from "./pages/NotificationsTab.jsx";
@@ -46,7 +45,6 @@ export default function App() {
         <NavLink to="/" end>Videos</NavLink>
         <NavLink to="/review">Review Queue</NavLink>
         <NavLink to="/verify">Verify</NavLink>
-        <NavLink to="/grid">Unreviewed Grid</NavLink>
         <NavLink to="/duplicates">Duplicates</NavLink>
         <NavLink to="/notifications">
           Notifications{unreadCount > 0 ? ` (${unreadCount})` : ""}
@@ -64,7 +62,6 @@ export default function App() {
           <Route path="/videos/:videoId" element={<VideoDetail />} />
           <Route path="/review" element={<ReviewQueue />} />
           <Route path="/verify" element={<VerifyQueue />} />
-          <Route path="/grid" element={<TileGrid />} />
           <Route path="/duplicates" element={<Duplicates />} />
           <Route path="/notifications" element={<NotificationsTab />} />
           <Route path="/settings" element={<Settings />} />

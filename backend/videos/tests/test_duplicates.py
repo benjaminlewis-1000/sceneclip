@@ -74,6 +74,7 @@ def test_unmark_duplicate_reverses_flag_and_requeues_encoding():
     )
 
     with mock.patch("videos.tasks.export_scene_task.delay") as mock_delay:
+        mock_delay.return_value.id = "fake-task-id"
         unmark_duplicate(duplicate)
 
     duplicate.refresh_from_db()

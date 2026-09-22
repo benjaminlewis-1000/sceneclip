@@ -10,9 +10,9 @@ from ..models import Scene, SceneBoundary
 
 
 class SceneStillEncoding(Exception):
-    """Raised by undo_boundary_review when a scene bordering the boundary
-    is actively mid-encode -- undoing right now would delete/rewrite a file
-    a running ffmpeg process still has open."""
+    """Raised by mark_duplicate (services/duplicates.py) when a scene is
+    actively mid-encode -- undo_boundary_review no longer raises this; it
+    cancels the in-flight encode instead (see below)."""
 
 
 def _seed_from_boundaries(start_b, end_b):
@@ -125,21 +125,27 @@ def undo_boundary_review(boundary: SceneBoundary) -> None:
     exported scene" guard would leave it stranded, orphaned from the new
     cut points but still marked exported, with its file never cleaned up.
 
-    Raises SceneStillEncoding, changing nothing, if any bordering scene is
-    actively mid-encode -- its ffmpeg process may still have the very file
-    this would delete open for writing.
+    Doesn't wait for a bordering scene that's actively mid-encode --
+    that encode's target span is already obsolete the moment the boundary
+    is undone, so there's nothing to gain from blocking on it. Best-effort
+    cancels the in-flight Celery task (via its tracked encode_task_id) and
+    proceeds immediately; if the cancel doesn't actually stop the ffmpeg
+    process in time, the task finding its Scene row deleted out from under
+    it on completion is harmless (see export_one_scene/export_scene_task --
+    a plain UPDATE affecting zero rows, not an error), just a wasted encode
+    and an orphaned file in TEMP_SCENE_CLIPS_DIR nobody references.
     """
     affected = list(
         Scene.objects.filter(video=boundary.video).filter(
             models.Q(start_boundary=boundary) | models.Q(end_boundary=boundary)
         )
     )
-    if any(s.export_progress_percent is not None for s in affected):
-        raise SceneStillEncoding(
-            "A scene bordering this boundary is still encoding -- wait for it to finish before undoing."
-        )
 
     for scene in affected:
+        if scene.export_progress_percent is not None and scene.encode_task_id:
+            from config.celery import app
+
+            app.control.revoke(scene.encode_task_id, terminate=True, signal="SIGKILL")
         if scene.exported and scene.exported_path:
             try:
                 os.remove(scene.exported_path)
@@ -150,10 +156,11 @@ def undo_boundary_review(boundary: SceneBoundary) -> None:
         scene.verified = False
         scene.export_progress_percent = None
         scene.encode_started_at = None
+        scene.encode_task_id = ""
         scene.save(
             update_fields=[
-                "exported", "exported_path", "verified",
-                "export_progress_percent", "encode_started_at",
+                "exported", "exported_path", "verified", "export_progress_percent",
+                "encode_started_at", "encode_task_id",
             ]
         )
 
