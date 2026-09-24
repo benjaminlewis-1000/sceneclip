@@ -11,6 +11,14 @@ services:
     build:
       context: ./backend
     container_name: sceneclip_web
+    # Hit for real: the host's Docker daemon restarted (routine, e.g. a
+    # package update) and every other app on the host came back up on its
+    # own -- this stack didn't, because it had no restart policy, and sat
+    # fully down for ~23 hours before anyone noticed. `unless-stopped`
+    # matches what the sibling projects already do: survives a daemon
+    # restart or host reboot, but a deliberate `docker compose stop`
+    # still stays stopped (not `always`, which would fight that).
+    restart: unless-stopped
     # Without this, the container runs as root -- every file it writes to
     # the bind mounts below (thumbnails, preview clips, encoded scenes,
     # collectstatic output) comes out root-owned on the host instead of
@@ -53,6 +61,7 @@ services:
     build:
       context: ./backend
     container_name: sceneclip_worker
+    restart: unless-stopped
     user: "${APP_UID:-1000}:${APP_GID:-1000}"
     # Also consumes the default "celery" queue (metadata backfill, the
     # orphaned-work sweep task) and is the only one of the two running -B
@@ -79,6 +88,7 @@ services:
     build:
       context: ./backend
     container_name: sceneclip_worker_encode
+    restart: unless-stopped
     user: "${APP_UID:-1000}:${APP_GID:-1000}"
     command: celery -A config worker -l INFO -c 2 -Q encoding --hostname=encode@%h
     env_file: .env
@@ -103,6 +113,7 @@ services:
   db:
     image: postgres:16-alpine
     container_name: sceneclip_db
+    restart: unless-stopped
     environment:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
@@ -115,6 +126,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: sceneclip_redis
+    restart: unless-stopped
     networks:
       - traefik_proxy
 
@@ -122,6 +134,7 @@ services:
     build:
       context: ./frontend
     container_name: sceneclip_frontend
+    restart: unless-stopped
     depends_on:
       - web
     ports:
