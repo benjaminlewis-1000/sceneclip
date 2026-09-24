@@ -82,20 +82,24 @@ export default function VideoList() {
   };
 
   // An edit that changes a video's sort rank (date, marked-done) re-sorts
-  // the whole list on refresh -- the card itself moving is fine (that's
-  // the point), but without this the *viewport* stays at the same scroll
-  // offset while different content slides underneath it, reading as a
-  // jarring jump to a random spot in the page. Keeps the edited card
-  // anchored at the same screen position; everything else reflows around
-  // it instead of around the user's scroll position.
+  // the whole list on refresh. The edited card is *supposed* to move --
+  // that's the point -- but anchoring on that card just relocates the
+  // jarring jump onto every other card instead of fixing it. Anchor on
+  // some other, unrelated card instead (the first one currently visible
+  // near the top of the viewport): that card's position doesn't change
+  // relative to the rest of the list, so pinning it keeps the whole page
+  // visually still, and the edited card is free to jump to its new spot.
   const withScrollAnchor = async (videoId, action) => {
-    const el = document.getElementById(`video-card-${videoId}`);
-    const prevTop = el ? el.getBoundingClientRect().top : null;
+    const cards = Array.from(document.querySelectorAll('[id^="video-card-"]'));
+    const others = cards.filter((el) => el.id !== `video-card-${videoId}`);
+    const anchor = others.find((el) => el.getBoundingClientRect().top >= 0) || others[0];
+    const anchorId = anchor ? anchor.id : null;
+    const prevTop = anchor ? anchor.getBoundingClientRect().top : null;
     await action();
-    if (prevTop != null) {
+    if (prevTop != null && anchorId) {
       requestAnimationFrame(() => {
-        const newEl = document.getElementById(`video-card-${videoId}`);
-        if (newEl) window.scrollBy(0, newEl.getBoundingClientRect().top - prevTop);
+        const newAnchor = document.getElementById(anchorId);
+        if (newAnchor) window.scrollBy(0, newAnchor.getBoundingClientRect().top - prevTop);
       });
     }
   };

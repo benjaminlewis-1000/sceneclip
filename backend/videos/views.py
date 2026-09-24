@@ -282,30 +282,6 @@ class SceneBoundaryViewSet(
         )
         return Response(SceneBoundarySerializer(boundary).data if boundary else None)
 
-    @action(detail=False, methods=["get"])
-    def review_summary(self, request):
-        """One row per video that still has pending boundaries -- backs the
-        Review Queue's "videos to review" list, mirroring SceneViewSet.
-        verify_summary."""
-        rows = (
-            self.get_queryset()
-            .filter(review_status=SceneBoundary.ReviewStatus.PENDING)
-            .values("video_id", "video__path", "video__recorded_date")
-            .annotate(count=Count("id"))
-            .order_by("video__path")
-        )
-        return Response(
-            [
-                {
-                    "video_id": r["video_id"],
-                    "video_path": r["video__path"],
-                    "recorded_date": r["video__recorded_date"],
-                    "count": r["count"],
-                }
-                for r in rows
-            ]
-        )
-
     @action(detail=True, methods=["post"])
     def review(self, request, pk=None):
         # Records the human verdict (the hotkey/tile-click target), then

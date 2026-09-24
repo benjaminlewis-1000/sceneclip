@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client.js";
 import BackButton from "../components/BackButton.jsx";
-import { compareByRecordedDate, SortControl, useVideoSortPreference } from "../videoSort.jsx";
 
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3];
 
@@ -39,15 +38,26 @@ export default function ReviewQueue() {
   const [allBoundaries, setAllBoundaries] = useState([]);
   const [peekIndex, setPeekIndex] = useState(0);
 
-  // Every source video that still has pending boundaries, with a count --
-  // lets you jump straight to a specific video instead of only ever
-  // working the single global next-up boundary. Sort preference is shared
-  // (localStorage) with the same control on the main video list and the
-  // Verify queue.
-  const [summary, setSummary] = useState([]);
-  const { mode: sortMode, direction: sortDirection, setMode: setSortMode, setDirection: setSortDirection } =
-    useVideoSortPreference();
-  const refreshSummary = () => api.reviewSummary().then(setSummary);
+  // The scoped video's own record -- lets the "start date" box on this page
+  // set Video.recorded_date directly, the same field the main video list
+  // and Verify Queue edit.
+  const [scopedVideo, setScopedVideo] = useState(null);
+  const [recordedDate, setRecordedDate] = useState("");
+  const refreshScopedVideo = useCallback(() => {
+    if (!scopedVideoId) {
+      setScopedVideo(null);
+      return;
+    }
+    api.getVideo(scopedVideoId).then((v) => {
+      setScopedVideo(v);
+      setRecordedDate(v.recorded_date || "");
+    });
+  }, [scopedVideoId]);
+  const saveRecordedDate = async (date) => {
+    if (!scopedVideoId) return;
+    await api.setVideoRecordedDate(scopedVideoId, date);
+    refreshScopedVideo();
+  };
 
   // Local editable copies of the boundary's before/after log fields --
   // separate from `boundary` itself so typing doesn't fight the polling/
@@ -101,8 +111,11 @@ export default function ReviewQueue() {
 
   useEffect(() => {
     loadNext();
-    refreshSummary();
   }, [loadNext]);
+
+  useEffect(() => {
+    refreshScopedVideo();
+  }, [refreshScopedVideo]);
 
   useEffect(() => {
     if (videoRef.current) videoRef.current.playbackRate = speed;
@@ -152,7 +165,6 @@ export default function ReviewQueue() {
           ? { description: afterDescription || beforeDescription, date: afterDate || beforeDate }
           : { description: afterDescription, date: afterDate };
       loadNext(carry);
-      refreshSummary();
     },
     [boundary, beforeDescription, beforeDate, afterDescription, afterDate, loadNext]
   );
@@ -231,31 +243,16 @@ export default function ReviewQueue() {
     );
   }
 
-  const sortedSummary =
-    sortMode === "date"
-      ? [...summary].sort((a, b) => compareByRecordedDate({ ...a, path: a.video_path }, { ...b, path: b.video_path }, sortDirection))
-      : summary;
-
-  const videoList = summary.length > 0 && (
-    <div className="boundary-log">
-      <h2>Videos with boundaries to review</h2>
-      <SortControl
-        mode={sortMode}
-        direction={sortDirection}
-        setMode={setSortMode}
-        setDirection={setSortDirection}
-        showStatusMode={false}
+  const recordedDateBox = scopedVideoId && scopedVideo && (
+    <p className="boundary-meta">
+      Start date (first day of filming){" "}
+      <input
+        type="date"
+        value={recordedDate}
+        onChange={(e) => setRecordedDate(e.target.value)}
+        onBlur={(e) => saveRecordedDate(e.target.value || null)}
       />
-      <ul>
-        {sortedSummary.map((row) => (
-          <li key={row.video_id}>
-            <Link to={`/review?video=${row.video_id}`}>
-              {row.video_path} ({row.count})
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </div>
+    </p>
   );
 
   if (boundary === null) {
@@ -263,13 +260,13 @@ export default function ReviewQueue() {
       <div>
         <BackButton />
         <h1>Nothing to review</h1>
+        {recordedDateBox}
         <p>
           {scopedVideoId
             ? "This video hasn't been processed yet, or every candidate boundary has already been reviewed."
             : "Nothing's been detected yet, or everything detected so far has already been reviewed."}{" "}
           Run detection on a video from the <Link to="/">Videos page</Link> to get candidates here.
         </p>
-        {videoList}
       </div>
     );
   }
@@ -278,6 +275,7 @@ export default function ReviewQueue() {
     <div className="review-queue">
       <BackButton />
       <h1>{scopedVideoId ? "Review Queue (this video)" : "Review Queue"}</h1>
+      {recordedDateBox}
       <p className="boundary-meta">
         {peekBoundary.video_path} @ {formatTime(peekBoundary.timestamp_seconds)}
         {allBoundaries.length > 0 && `, Scene ${peekIndex + 1}/${allBoundaries.length}`}
@@ -399,8 +397,6 @@ export default function ReviewQueue() {
           Real scene change (Y)
         </button>
       </div>
-
-      {videoList}
     </div>
   );
 }
