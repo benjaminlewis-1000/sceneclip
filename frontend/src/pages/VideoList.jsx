@@ -9,6 +9,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client.js";
+import { compareByRecordedDate, SortControl, useVideoSortPreference } from "../videoSort.jsx";
 
 // Videos in these states have a job running -- poll a bit faster while any
 // of them are visible so the progress bar actually moves on screen.
@@ -28,6 +29,7 @@ const FILTERS = [
   { key: "pending", label: "Not started" },
   { key: "exported", label: "Exported" },
   { key: "done", label: "Marked done" },
+  { key: "no_date", label: "No recorded date" },
 ];
 
 export default function VideoList() {
@@ -38,8 +40,11 @@ export default function VideoList() {
   // "status" (default) groups by review progress; "date" is a flat sort by
   // recorded_date (nulls last) -- the point of recorded_date in the first
   // place is spotting duplicate/re-digitized captures of the same tape by
-  // seeing which videos share (or nearly share) a filming date.
-  const [sortMode, setSortMode] = useState("status");
+  // seeing which videos share (or nearly share) a filming date. Shared
+  // (localStorage-persisted) with the same control on Review Queue/Verify
+  // Queue's video lists, so the choice is the same wherever you are.
+  const { mode: sortMode, direction: sortDirection, setMode: setSortMode, setDirection: setSortDirection } =
+    useVideoSortPreference();
 
   const refresh = useCallback(() => api.listVideos().then(setVideos), []);
 
@@ -76,15 +81,36 @@ export default function VideoList() {
     refresh();
   };
 
-  const toggleDone = async (video) => {
-    await api.setVideoDone(video.id, !video.marked_done);
-    refresh();
+  // An edit that changes a video's sort rank (date, marked-done) re-sorts
+  // the whole list on refresh -- the card itself moving is fine (that's
+  // the point), but without this the *viewport* stays at the same scroll
+  // offset while different content slides underneath it, reading as a
+  // jarring jump to a random spot in the page. Keeps the edited card
+  // anchored at the same screen position; everything else reflows around
+  // it instead of around the user's scroll position.
+  const withScrollAnchor = async (videoId, action) => {
+    const el = document.getElementById(`video-card-${videoId}`);
+    const prevTop = el ? el.getBoundingClientRect().top : null;
+    await action();
+    if (prevTop != null) {
+      requestAnimationFrame(() => {
+        const newEl = document.getElementById(`video-card-${videoId}`);
+        if (newEl) window.scrollBy(0, newEl.getBoundingClientRect().top - prevTop);
+      });
+    }
   };
 
-  const updateRecordedDate = async (video, date) => {
-    await api.setVideoRecordedDate(video.id, date);
-    refresh();
-  };
+  const toggleDone = (video) =>
+    withScrollAnchor(video.id, async () => {
+      await api.setVideoDone(video.id, !video.marked_done);
+      await refresh();
+    });
+
+  const updateRecordedDate = (video, date) =>
+    withScrollAnchor(video.id, async () => {
+      await api.setVideoRecordedDate(video.id, date);
+      await refresh();
+    });
 
   const undoDuplicate = async (video) => {
     const proceed = window.confirm(
@@ -113,12 +139,7 @@ export default function VideoList() {
 
   const sortedVideos =
     sortMode === "date"
-      ? [...videos].sort((a, b) => {
-          if (!a.recorded_date && !b.recorded_date) return a.path.localeCompare(b.path);
-          if (!a.recorded_date) return 1;
-          if (!b.recorded_date) return -1;
-          return a.recorded_date.localeCompare(b.recorded_date) || a.path.localeCompare(b.path);
-        })
+      ? [...videos].sort((a, b) => compareByRecordedDate(a, b, sortDirection))
       : [...videos].sort((a, b) => {
           if (a.marked_done !== b.marked_done) return a.marked_done ? 1 : -1;
           const statusDiff = (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99);
@@ -137,6 +158,7 @@ export default function VideoList() {
   const visibleVideos = sortedVideos.filter((v) => {
     if (filter === "all") return true;
     if (filter === "done") return v.marked_done;
+    if (filter === "no_date") return !v.recorded_date;
     return v.status === filter;
   });
 
@@ -167,15 +189,12 @@ export default function VideoList() {
         ))}
       </div>
 
-      <div className="filter-toolbar">
-        <span className="boundary-log-label">Sort by</span>
-        <button className={sortMode === "status" ? "active" : ""} onClick={() => setSortMode("status")}>
-          Status
-        </button>
-        <button className={sortMode === "date" ? "active" : ""} onClick={() => setSortMode("date")}>
-          Recorded date
-        </button>
-      </div>
+      <SortControl
+        mode={sortMode}
+        direction={sortDirection}
+        setMode={setSortMode}
+        setDirection={setSortDirection}
+      />
 
       {browserOpen && <DirectoryBrowser onPick={addVideo} onClose={() => setBrowserOpen(false)} />}
 
@@ -208,7 +227,7 @@ function VideoCard({ video, onReprocess, onToggleDone, onUndoDuplicate, onUpdate
   const metadataReady = video.duration_seconds != null;
 
   return (
-    <div className={`video-card${video.marked_done ? " done" : ""}`}>
+    <div id={`video-card-${video.id}`} className={`video-card${video.marked_done ? " done" : ""}`}>
       <div className="video-card-row">
         {metadataReady ? (
           <img

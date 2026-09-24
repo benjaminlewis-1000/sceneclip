@@ -95,6 +95,7 @@ export const api = {
     request(`/api/boundaries/?${new URLSearchParams(params)}`),
   nextQueueBoundary: (videoId) =>
     request(`/api/boundaries/queue/${videoId ? `?video=${videoId}` : ""}`),
+  reviewSummary: () => request("/api/boundaries/review_summary/"),
   reviewBoundary: (id, verdict) =>
     request(`/api/boundaries/${id}/review/`, {
       method: "POST",

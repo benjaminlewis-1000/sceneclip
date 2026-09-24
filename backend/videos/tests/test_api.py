@@ -403,6 +403,33 @@ def test_verify_summary_lists_videos_with_unverified_scenes():
     assert response.status_code == 200
     by_video = {row["video_path"]: row["count"] for row in response.data}
     assert by_video == {"/videos/a.mp4": 2, "/videos/b.mp4": 1}
+    by_video_date = {row["video_path"]: row["recorded_date"] for row in response.data}
+    assert by_video_date["/videos/a.mp4"] is None
+
+
+def test_review_summary_lists_videos_with_pending_boundaries():
+    user = get_user_model().objects.create_user(username="benjamin28", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video_a = Video.objects.create(path="/videos/rev_a.mp4", recorded_date="1994-06-01")
+    video_b = Video.objects.create(path="/videos/rev_b.mp4")
+    run_a = DetectionRun.objects.create(video=video_a, params={})
+    run_b = DetectionRun.objects.create(video=video_b, params={})
+    SceneBoundary.objects.create(video=video_a, run=run_a, timestamp_seconds=10.0)
+    SceneBoundary.objects.create(video=video_a, run=run_a, timestamp_seconds=20.0)
+    SceneBoundary.objects.create(video=video_b, run=run_b, timestamp_seconds=10.0)
+    SceneBoundary.objects.create(  # already approved -- excluded
+        video=video_b, run=run_b, timestamp_seconds=20.0,
+        review_status=SceneBoundary.ReviewStatus.APPROVED,
+    )
+
+    response = client.get("/api/boundaries/review_summary/")
+    assert response.status_code == 200
+    by_video = {row["video_path"]: row["count"] for row in response.data}
+    assert by_video == {"/videos/rev_a.mp4": 2, "/videos/rev_b.mp4": 1}
+    by_video_date = {row["video_path"]: row["recorded_date"] for row in response.data}
+    assert str(by_video_date["/videos/rev_a.mp4"]) == "1994-06-01"
 
 
 def test_scene_verify_queue_exclude_param_skips_session_skipped_scenes():

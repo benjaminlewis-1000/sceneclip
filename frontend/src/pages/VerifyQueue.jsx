@@ -6,6 +6,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../api/client.js";
 import BackButton from "../components/BackButton.jsx";
+import { compareByRecordedDate, SortControl, useVideoSortPreference } from "../videoSort.jsx";
 
 const SPEEDS = [1, 1.25, 1.5, 1.75, 2, 2.5, 3, 5, 8, 10];
 
@@ -25,6 +26,8 @@ export default function VerifyQueue() {
   // lets you jump straight to a specific video instead of only ever seeing
   // the single global next-up scene.
   const [summary, setSummary] = useState([]);
+  const { mode: sortMode, direction: sortDirection, setMode: setSortMode, setDirection: setSortDirection } =
+    useVideoSortPreference();
   const videoRef = useRef(null);
 
   const refreshSummary = () => api.verifySummary().then(setSummary);
@@ -61,16 +64,30 @@ export default function VerifyQueue() {
     setSkippedIds((ids) => [...ids, scene.id]);
   };
 
+  const sortedSummary =
+    sortMode === "date"
+      ? [...summary].sort((a, b) =>
+          compareByRecordedDate({ ...a, path: a.video_path }, { ...b, path: b.video_path }, sortDirection)
+        )
+      : summary;
+
   const videoList = summary.length > 0 && (
     <div className="boundary-log">
       <h2>Videos with clips to verify</h2>
+      <SortControl
+        mode={sortMode}
+        direction={sortDirection}
+        setMode={setSortMode}
+        setDirection={setSortDirection}
+        showStatusMode={false}
+      />
       <ul>
         {!scopedVideoId ? null : (
           <li>
             <Link to="/verify">-- All videos --</Link>
           </li>
         )}
-        {summary.map((row) => (
+        {sortedSummary.map((row) => (
           <li key={row.video_id}>
             <Link to={`/verify?video=${row.video_id}`}>
               {row.video_path} ({row.count})
