@@ -69,6 +69,11 @@ export default function VideoDetail() {
     refresh();
   };
 
+  const updateRecordedDate = async (value) => {
+    await api.setVideoRecordedDate(videoId, value || null);
+    refresh();
+  };
+
   const encodeScene = async (scene) => {
     const pending = await api.listBoundaries({ video: videoId, status: "pending" });
     if (pending.length > 0) {
@@ -120,6 +125,14 @@ export default function VideoDetail() {
       <h1>{video.path}</h1>
       <p>
         Status: {video.status} -- <Link to={`/review?video=${videoId}`}>Go to review</Link>
+      </p>
+      <p>
+        Recorded date (first day of filming){" "}
+        <input
+          type="date"
+          defaultValue={video.recorded_date || ""}
+          onBlur={(e) => updateRecordedDate(e.target.value)}
+        />
       </p>
       {video.detection_exhausted && (
         <p className="video-stuck" title={video.last_detection_error || undefined}>

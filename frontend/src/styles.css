@@ -322,6 +322,11 @@ button.active {
   text-transform: capitalize;
 }
 
+.video-recorded-date {
+  font-size: 0.8rem;
+  color: #9aa0b4;
+}
+
 .video-card-actions {
   display: flex;
   gap: 0.5rem;

@@ -35,6 +35,11 @@ export default function VideoList() {
   const [syncing, setSyncing] = useState(true);
   const [browserOpen, setBrowserOpen] = useState(false);
   const [filter, setFilter] = useState("all");
+  // "status" (default) groups by review progress; "date" is a flat sort by
+  // recorded_date (nulls last) -- the point of recorded_date in the first
+  // place is spotting duplicate/re-digitized captures of the same tape by
+  // seeing which videos share (or nearly share) a filming date.
+  const [sortMode, setSortMode] = useState("status");
 
   const refresh = useCallback(() => api.listVideos().then(setVideos), []);
 
@@ -76,6 +81,11 @@ export default function VideoList() {
     refresh();
   };
 
+  const updateRecordedDate = async (video, date) => {
+    await api.setVideoRecordedDate(video.id, date);
+    refresh();
+  };
+
   const undoDuplicate = async (video) => {
     const proceed = window.confirm(
       "Undo the duplicate marking? Scenes that had their clip deleted will start re-encoding."
@@ -101,20 +111,29 @@ export default function VideoList() {
   };
   const pendingCount = videos.filter((v) => v.status === "pending" && !v.duplicate_of).length;
 
-  const sortedVideos = [...videos].sort((a, b) => {
-    if (a.marked_done !== b.marked_done) return a.marked_done ? 1 : -1;
-    const statusDiff = (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99);
-    if (statusDiff !== 0) return statusDiff;
-    // Within "detecting", a run actually being worked on is more worth
-    // seeing than one just sitting behind a worker-concurrency backlog.
-    const runRank = (v) => (v.detection_run_status === "running" ? 0 : 1);
-    if (a.status === "detecting") return runRank(a) - runRank(b);
-    // Within "pending", a video that's exhausted its automatic retries
-    // needs a human to look at it -- a normal pending video will just get
-    // auto-queued on its own soon.
-    if (a.status === "pending") return (a.detection_exhausted ? 0 : 1) - (b.detection_exhausted ? 0 : 1);
-    return 0;
-  });
+  const sortedVideos =
+    sortMode === "date"
+      ? [...videos].sort((a, b) => {
+          if (!a.recorded_date && !b.recorded_date) return a.path.localeCompare(b.path);
+          if (!a.recorded_date) return 1;
+          if (!b.recorded_date) return -1;
+          return a.recorded_date.localeCompare(b.recorded_date) || a.path.localeCompare(b.path);
+        })
+      : [...videos].sort((a, b) => {
+          if (a.marked_done !== b.marked_done) return a.marked_done ? 1 : -1;
+          const statusDiff = (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99);
+          if (statusDiff !== 0) return statusDiff;
+          // Within "detecting", a run actually being worked on is more
+          // worth seeing than one just sitting behind a worker-concurrency
+          // backlog.
+          const runRank = (v) => (v.detection_run_status === "running" ? 0 : 1);
+          if (a.status === "detecting") return runRank(a) - runRank(b);
+          // Within "pending", a video that's exhausted its automatic
+          // retries needs a human to look at it -- a normal pending video
+          // will just get auto-queued on its own soon.
+          if (a.status === "pending") return (a.detection_exhausted ? 0 : 1) - (b.detection_exhausted ? 0 : 1);
+          return 0;
+        });
   const visibleVideos = sortedVideos.filter((v) => {
     if (filter === "all") return true;
     if (filter === "done") return v.marked_done;
@@ -148,6 +167,16 @@ export default function VideoList() {
         ))}
       </div>
 
+      <div className="filter-toolbar">
+        <span className="boundary-log-label">Sort by</span>
+        <button className={sortMode === "status" ? "active" : ""} onClick={() => setSortMode("status")}>
+          Status
+        </button>
+        <button className={sortMode === "date" ? "active" : ""} onClick={() => setSortMode("date")}>
+          Recorded date
+        </button>
+      </div>
+
       {browserOpen && <DirectoryBrowser onPick={addVideo} onClose={() => setBrowserOpen(false)} />}
 
       <div className="video-cards">
@@ -158,6 +187,7 @@ export default function VideoList() {
             onReprocess={() => reprocess(v)}
             onToggleDone={() => toggleDone(v)}
             onUndoDuplicate={() => undoDuplicate(v)}
+            onUpdateRecordedDate={(date) => updateRecordedDate(v, date)}
           />
         ))}
         {videos.length === 0 && !syncing && (
@@ -169,7 +199,7 @@ export default function VideoList() {
   );
 }
 
-function VideoCard({ video, onReprocess, onToggleDone, onUndoDuplicate }) {
+function VideoCard({ video, onReprocess, onToggleDone, onUndoDuplicate, onUpdateRecordedDate }) {
   const inProgress = IN_PROGRESS_STATUSES.has(video.status);
   // duration_seconds is set by the same background task that generates the
   // thumbnail (see tasks.py:generate_video_metadata_task) -- using it as
@@ -200,6 +230,14 @@ function VideoCard({ video, onReprocess, onToggleDone, onUndoDuplicate }) {
               : video.status}
             {video.duration_seconds != null && ` · ${formatDuration(video.duration_seconds)}`}
           </span>
+          <label className="video-recorded-date">
+            Recorded:{" "}
+            <input
+              type="date"
+              defaultValue={video.recorded_date || ""}
+              onBlur={(e) => onUpdateRecordedDate(e.target.value || null)}
+            />
+          </label>
         </div>
       </div>
 

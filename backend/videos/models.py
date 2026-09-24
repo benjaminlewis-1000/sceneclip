@@ -18,6 +18,11 @@ class Video(models.Model):
 
     path = models.CharField(max_length=1024, unique=True)
     duration_seconds = models.FloatField(null=True, blank=True)
+    # Human-entered, not derived from anything -- typically the first day
+    # of filming on the tape. Lets the library be sorted chronologically,
+    # which is the main way to actually spot duplicate/re-digitized
+    # captures of the same tape sitting under different filenames.
+    recorded_date = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
     # Per-video override of detection knobs; falls back to the singleton
     # DetectionParams row when null.

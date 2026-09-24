@@ -75,6 +75,8 @@ export const api = {
     request(`/api/videos/browse/?path=${encodeURIComponent(path)}`),
   setVideoDone: (id, done) =>
     request(`/api/videos/${id}/`, { method: "PATCH", body: JSON.stringify({ marked_done: done }) }),
+  setVideoRecordedDate: (id, date) =>
+    request(`/api/videos/${id}/`, { method: "PATCH", body: JSON.stringify({ recorded_date: date || null }) }),
   markDuplicate: (duplicateId, keepId) =>
     request(`/api/videos/${duplicateId}/mark_duplicate/`, {
       method: "POST",

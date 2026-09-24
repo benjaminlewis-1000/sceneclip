@@ -129,6 +129,23 @@ def test_video_serializer_flags_boundary_and_approval_state():
     assert response.data["has_approved_boundaries"] is True
 
 
+def test_video_recorded_date_is_writable_via_patch():
+    user = get_user_model().objects.create_user(username="benjamin27", password="x")
+    client = APIClient()
+    client.force_authenticate(user=user)
+
+    video = Video.objects.create(path="/videos/tape27.mp4")
+    response = client.patch(f"/api/videos/{video.id}/", {"recorded_date": "1994-06-01"}, format="json")
+    assert response.status_code == 200
+    video.refresh_from_db()
+    assert str(video.recorded_date) == "1994-06-01"
+
+    response = client.patch(f"/api/videos/{video.id}/", {"recorded_date": None}, format="json")
+    assert response.status_code == 200
+    video.refresh_from_db()
+    assert video.recorded_date is None
+
+
 def test_ready_to_mark_done_and_mark_done_guard():
     user = get_user_model().objects.create_user(username="benjamin21", password="x")
     client = APIClient()

@@ -51,7 +51,7 @@ class VideoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Video
         fields = [
-            "id", "path", "duration_seconds", "status", "marked_done",
+            "id", "path", "duration_seconds", "recorded_date", "status", "marked_done",
             "export_progress_percent", "detection_progress_percent",
             "detection_run_status", "detection_exhausted", "last_detection_error",
             "has_boundaries", "has_approved_boundaries", "ready_to_mark_done",
